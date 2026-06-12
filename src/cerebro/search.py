@@ -2,6 +2,7 @@
 
 Fast, dependency-light: reuses scikit-learn already required by classifier.
 """
+
 from __future__ import annotations
 
 import json
@@ -28,7 +29,9 @@ def _text_for_indexing(bookmark: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
-def build_index(bookmarks: list[dict[str, Any]]) -> tuple[TfidfVectorizer, np.ndarray, list[dict[str, Any]]]:
+def build_index(
+    bookmarks: list[dict[str, Any]],
+) -> tuple[TfidfVectorizer, np.ndarray, list[dict[str, Any]]]:
     """Fit TF-IDF on all bookmarks and return (vectorizer, matrix, bookmarks)."""
     corpus = [_text_for_indexing(bm) for bm in bookmarks]
     vectorizer = TfidfVectorizer(
