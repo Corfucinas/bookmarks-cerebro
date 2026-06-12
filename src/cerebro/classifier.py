@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import logging
-import re
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.neighbors import KNeighborsClassifier
 
-from .models import Bookmark
-from .taxonomy import TaxonomyNode, load_taxonomy
-from .utils import extract_tld_plus_one
+from src.cerebro.models import Bookmark
+from src.cerebro.taxonomy import load_taxonomy
+from src.cerebro.utils import extract_tld_plus_one
 
 logger = logging.getLogger("cerebro")
 
@@ -756,8 +754,9 @@ class BookmarkClassifier:
         if not self.ml_classifier or not self.vectorizer:
             return ["Reference", "Utilities"], 0.20
         try:
-            X = self.vectorizer.transform([text])
-            proba = self.ml_classifier.predict_proba(X)[0]
+            x_matrix = self.vectorizer.transform([text])
+            proba = self.ml_classifier.predict_proba(x_matrix)[0]
+            pred_idx = np.argmax(proba)
             pred_idx = np.argmax(proba)
             confidence = float(proba[pred_idx])
             leaf = self.leaves[pred_idx]
@@ -792,9 +791,9 @@ class BookmarkClassifier:
             min_df=2,
             stop_words="english",
         )
-        X = self.vectorizer.fit_transform(classified)
+        x_matrix = self.vectorizer.fit_transform(classified)
         self.ml_classifier = KNeighborsClassifier(n_neighbors=5, weights="distance")
-        self.ml_classifier.fit(X, labels)
+        self.ml_classifier.fit(x_matrix, labels)
         self._ml_ready = True
         logger.info(f"ML classifier trained on {len(classified)} samples")
 

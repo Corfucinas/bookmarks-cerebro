@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 
-from .models import Bookmark
+from src.cerebro.models import Bookmark
 
 logger = logging.getLogger("cerebro")
 
@@ -18,7 +18,7 @@ def detect_duplicates(bookmarks: list[Bookmark]) -> list[Bookmark]:
 
     duplicates_found = 0
     group_id = 0
-    for url, group in url_groups.items():
+    for _url, group in url_groups.items():
         if len(group) > 1:
             duplicates_found += len(group) - 1
             gid = f"dup_{group_id:04d}"
@@ -30,10 +30,12 @@ def detect_duplicates(bookmarks: list[Bookmark]) -> list[Bookmark]:
             for bm in group:
                 bm.duplicate_group_id = gid
                 bm.duplicate_urls = list(set(all_urls))
-                if bm.id != canonical.id:
-                    # Merge folder paths as aliases
-                    if bm.raw_folder_path and bm.raw_folder_path not in all_paths:
-                        all_paths.append(bm.raw_folder_path)
+                if (
+                    bm.id != canonical.id
+                    and bm.raw_folder_path
+                    and bm.raw_folder_path not in all_paths
+                ):
+                    all_paths.append(bm.raw_folder_path)
 
     logger.info(f"Duplicate detection: {duplicates_found} duplicates across {group_id} groups")
     return bookmarks

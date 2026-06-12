@@ -5,18 +5,16 @@ Uses urllib (stdlib) to avoid adding new dependencies."""
 from __future__ import annotations
 
 import logging
-import socket
 import ssl
 import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
-from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
-from .models import Bookmark
+from src.cerebro.models import Bookmark
 
 logger = logging.getLogger("cerebro")
 
@@ -46,7 +44,7 @@ def _create_ssl_context() -> ssl.SSLContext:
     return context
 
 
-def _fetch_head(url: str, timeout: int) -> urllib.request.addinfourl | None:
+def _fetch_head(url: str, timeout: int) -> Any:
     """Perform HEAD request. Returns response or None on failure."""
     req = urllib.request.Request(url, method="HEAD")
     req.add_header(
@@ -63,7 +61,7 @@ def _fetch_head(url: str, timeout: int) -> urllib.request.addinfourl | None:
         return None
 
 
-def _fetch_get(url: str, timeout: int) -> urllib.request.addinfourl | None:
+def _fetch_get(url: str, timeout: int) -> Any:
     """Perform GET request."""
     req = urllib.request.Request(url, method="GET")
     req.add_header(
@@ -79,7 +77,7 @@ def _fetch_get(url: str, timeout: int) -> urllib.request.addinfourl | None:
         return None
 
 
-def _read_body(resp: urllib.request.addinfourl) -> str:
+def _read_body(resp: Any) -> str:
     """Safely read and decode response body."""
     try:
         data = resp.read()
@@ -87,7 +85,8 @@ def _read_body(resp: urllib.request.addinfourl) -> str:
         charset = "utf-8"
         if "charset=" in content_type:
             charset = content_type.split("charset=")[-1].split(";")[0].strip()
-        return data.decode(charset, errors="replace")
+        decoded: str = data.decode(charset, errors="replace")
+        return decoded
     except Exception:
         return ""
 
@@ -103,7 +102,8 @@ def _extract_og_tags(soup: BeautifulSoup) -> dict[str, str | None]:
     for tag in soup.find_all("meta"):
         prop = tag.attrs.get("property", "")
         name = tag.attrs.get("name", "")
-        content = tag.attrs.get("content")
+        raw_content = tag.attrs.get("content")
+        content = raw_content if isinstance(raw_content, str) else None
         if prop == "og:title":
             og["title"] = content
         elif prop == "og:description":

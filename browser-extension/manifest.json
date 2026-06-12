@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Bookmarks Cerebro",
+  "version": "0.1.0",
+  "description": "Cerebro this page — send any tab to your bookmark intelligence pipeline",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": ["http://localhost:8765/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

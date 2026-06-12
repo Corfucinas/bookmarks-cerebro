@@ -16,8 +16,8 @@ logger = logging.getLogger("cerebro")
 class TaxonomyNode:
     name: str
     description: str = ""
-    children: list["TaxonomyNode"] = field(default_factory=list)
-    parent: "TaxonomyNode | None" = None
+    children: list[TaxonomyNode] = field(default_factory=list)
+    parent: TaxonomyNode | None = None
 
     @property
     def breadcrumb(self) -> list[str]:
@@ -29,7 +29,7 @@ class TaxonomyNode:
     def is_leaf(self) -> bool:
         return len(self.children) == 0
 
-    def all_leaves(self) -> list["TaxonomyNode"]:
+    def all_leaves(self) -> list[TaxonomyNode]:
         if self.is_leaf:
             return [self]
         leaves = []
@@ -37,13 +37,13 @@ class TaxonomyNode:
             leaves.extend(child.all_leaves())
         return leaves
 
-    def all_nodes(self) -> list["TaxonomyNode"]:
+    def all_nodes(self) -> list[TaxonomyNode]:
         nodes = [self]
         for child in self.children:
             nodes.extend(child.all_nodes())
         return nodes
 
-    def find(self, name: str) -> "TaxonomyNode | None":
+    def find(self, name: str) -> TaxonomyNode | None:
         if self.name == name:
             return self
         for child in self.children:
@@ -55,7 +55,7 @@ class TaxonomyNode:
 
 def load_taxonomy(path: Path | str) -> TaxonomyNode:
     path = Path(path)
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     root_data = data.get("roots", [])

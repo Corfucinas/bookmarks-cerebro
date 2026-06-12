@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
-from typing import Any
 
-from .models import Bookmark
-from .utils import extract_domain
+from src.cerebro.models import Bookmark
+from src.cerebro.utils import extract_domain
 
 logger = logging.getLogger("cerebro")
 
@@ -159,7 +157,6 @@ STOP_WORDS = {
     "last",
     "long",
     "little",
-    "own",
     "old",
     "right",
     "big",
@@ -171,10 +168,8 @@ STOP_WORDS = {
     "early",
     "young",
     "important",
-    "few",
     "public",
     "bad",
-    "same",
     "able",
     "via",
     "using",

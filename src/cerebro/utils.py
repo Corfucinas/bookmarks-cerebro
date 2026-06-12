@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -98,7 +96,7 @@ def extract_domain(url: str) -> str:
 
     try:
         parsed = urlparse(url)
-        return parsed.netloc.lower().lstrip("www.")
+        return re.sub(r"^www\.", "", parsed.netloc.lower())
     except Exception:
         return ""
 

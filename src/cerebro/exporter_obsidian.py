@@ -8,8 +8,8 @@ from typing import Any
 
 import yaml
 
-from .models import Bookmark
-from .utils import ensure_dir, safe_filename
+from src.cerebro.models import Bookmark
+from src.cerebro.utils import ensure_dir, safe_filename
 
 logger = logging.getLogger("cerebro")
 

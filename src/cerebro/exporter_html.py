@@ -7,8 +7,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from .models import Bookmark
-from .utils import ensure_dir
+from src.cerebro.models import Bookmark
+from src.cerebro.utils import ensure_dir
 
 logger = logging.getLogger("cerebro")
 
@@ -49,9 +49,9 @@ def _build_link_html(bookmark: Bookmark, indent: int = 1) -> str:
     return f"{prefix}<DT><A {attr_str}>{html.escape(bookmark.title)}</A>"
 
 
-def _build_taxonomy_tree(bookmarks: list[Bookmark]) -> dict:
+def _build_taxonomy_tree(bookmarks: list[Bookmark]) -> dict[str, Any]:
     """Build nested dict tree from category breadcrumbs."""
-    tree: dict = {}
+    tree: dict[str, Any] = {}
     for bm in bookmarks:
         node = tree
         for crumb in bm.category_breadcrumbs:
@@ -65,7 +65,7 @@ def _build_taxonomy_tree(bookmarks: list[Bookmark]) -> dict:
     return tree
 
 
-def _tree_to_html(tree: dict, indent: int = 1) -> str:
+def _tree_to_html(tree: dict[str, Any], indent: int = 1) -> str:
     """Convert tree dict to Netscape HTML."""
     lines = []
     # Sort for determinism

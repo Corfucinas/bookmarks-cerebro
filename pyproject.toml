@@ -53,6 +53,8 @@ target-version = ['py310', 'py311', 'py312']
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 ignore = ["E501"]
 
@@ -61,6 +63,8 @@ python_version = "3.10"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
+ignore_missing_imports = true
+disable_error_code = ["untyped-decorator"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

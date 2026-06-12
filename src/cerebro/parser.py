@@ -5,10 +5,9 @@ from __future__ import annotations
 import logging
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any
 
-from .models import Bookmark
-from .utils import compute_id, epoch_to_iso, extract_domain, extract_tld_plus_one
+from src.cerebro.models import Bookmark
+from src.cerebro.utils import compute_id, epoch_to_iso, extract_domain, extract_tld_plus_one
 
 logger = logging.getLogger("cerebro")
 
@@ -95,7 +94,7 @@ def parse_bookmarks(html_path: Path | str) -> list[Bookmark]:
     html_path = Path(html_path)
     logger.info(f"Parsing {html_path}")
 
-    with open(html_path, "r", encoding="utf-8", errors="replace") as f:
+    with open(html_path, encoding="utf-8", errors="replace") as f:
         content = f.read()
 
     parser = BookmarkHTMLParser()

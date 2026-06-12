@@ -3,21 +3,22 @@
 from __future__ import annotations
 
 import logging
-import sys
 from pathlib import Path
 
 import click
 
-from . import __version__
-from .classifier import classify_bookmarks
-from .dedup import detect_duplicates
-from .enricher import enrich_bookmarks
-from .exporter_html import export_html
-from .exporter_json import export_json
-from .exporter_obsidian import export_obsidian
-from .fetcher import fetch_bookmarks
-from .parser import parse_bookmarks
-from .utils import setup_logging
+from src.cerebro import __version__
+from src.cerebro.classifier import classify_bookmarks
+from src.cerebro.dedup import detect_duplicates
+from src.cerebro.enricher import enrich_bookmarks
+from src.cerebro.exporter_html import export_html
+from src.cerebro.exporter_json import export_json
+from src.cerebro.exporter_obsidian import export_obsidian
+from src.cerebro.fetcher import fetch_bookmarks
+from src.cerebro.parser import parse_bookmarks
+from src.cerebro.search import search_from_file
+from src.cerebro.server import run_server
+from src.cerebro.utils import setup_logging
 
 logger = logging.getLogger("cerebro")
 
@@ -39,7 +40,7 @@ def cli(verbose: bool) -> None:
 def parse(input_html: Path, output: Path) -> None:
     """Parse Netscape Bookmark HTML to raw JSON."""
     bookmarks = parse_bookmarks(input_html)
-    from .utils import save_json
+    from src.cerebro.utils import save_json
 
     save_json(output, [bm.to_dict() for bm in bookmarks])
     click.echo(f"✓ Parsed {len(bookmarks)} bookmarks → {output}")
@@ -59,14 +60,14 @@ def parse(input_html: Path, output: Path) -> None:
 @click.option("--no-ml", is_flag=True, help="Skip ML fallback classification")
 def classify(input_json: Path, taxonomy: Path, output: Path, no_ml: bool) -> None:
     """Classify bookmarks into taxonomy."""
-    from .utils import load_json
+    from src.cerebro.utils import load_json
 
     data = load_json(input_json)
-    from .models import Bookmark
+    from src.cerebro.models import Bookmark
 
     bookmarks = [Bookmark.from_dict(d) for d in data]
     bookmarks = classify_bookmarks(bookmarks, taxonomy, train_ml=not no_ml)
-    from .utils import save_json
+    from src.cerebro.utils import save_json
 
     save_json(output, [bm.to_dict() for bm in bookmarks])
     click.echo(f"✓ Classified {len(bookmarks)} bookmarks → {output}")
@@ -82,14 +83,14 @@ def classify(input_json: Path, taxonomy: Path, output: Path, no_ml: bool) -> Non
 )
 def enrich(input_json: Path, output: Path) -> None:
     """Enrich bookmarks with tags and descriptions."""
-    from .utils import load_json
+    from src.cerebro.utils import load_json
 
     data = load_json(input_json)
-    from .models import Bookmark
+    from src.cerebro.models import Bookmark
 
     bookmarks = [Bookmark.from_dict(d) for d in data]
     bookmarks = enrich_bookmarks(bookmarks)
-    from .utils import save_json
+    from src.cerebro.utils import save_json
 
     save_json(output, [bm.to_dict() for bm in bookmarks])
     click.echo(f"✓ Enriched {len(bookmarks)} bookmarks → {output}")
@@ -111,10 +112,10 @@ def export() -> None:
 )
 def export_json_cmd(input_json: Path, output: Path) -> None:
     """Export to JSON."""
-    from .utils import load_json
+    from src.cerebro.utils import load_json
 
     data = load_json(input_json)
-    from .models import Bookmark
+    from src.cerebro.models import Bookmark
 
     bookmarks = [Bookmark.from_dict(d) for d in data]
     export_json(bookmarks, output)
@@ -126,10 +127,10 @@ def export_json_cmd(input_json: Path, output: Path) -> None:
 @click.option("--vault-dir", "-d", type=click.Path(path_type=Path), default="data/vault")
 def export_obsidian_cmd(input_json: Path, vault_dir: Path) -> None:
     """Export to Obsidian markdown vault."""
-    from .utils import load_json
+    from src.cerebro.utils import load_json
 
     data = load_json(input_json)
-    from .models import Bookmark
+    from src.cerebro.models import Bookmark
 
     bookmarks = [Bookmark.from_dict(d) for d in data]
     export_obsidian(bookmarks, vault_dir)
@@ -146,10 +147,10 @@ def export_obsidian_cmd(input_json: Path, vault_dir: Path) -> None:
 )
 def export_html_cmd(input_json: Path, output: Path) -> None:
     """Export to Netscape Bookmark HTML."""
-    from .utils import load_json
+    from src.cerebro.utils import load_json
 
     data = load_json(input_json)
-    from .models import Bookmark
+    from src.cerebro.models import Bookmark
 
     bookmarks = [Bookmark.from_dict(d) for d in data]
     export_html(bookmarks, output)
@@ -211,6 +212,120 @@ def pipeline(
     click.echo(f"   JSON:  {enriched_json}")
     click.echo(f"   Vault: {vault_dir}")
     click.echo(f"   HTML:  {html_output}")
+
+
+@cli.command()
+@click.argument("input_json", type=click.Path(exists=True, path_type=Path))
+@click.argument("query")
+@click.option("--top-k", type=int, default=10, help="Number of results")
+@click.option("--min-score", type=float, default=0.05, help="Minimum similarity score")
+def search_cmd(input_json: Path, query: str, top_k: int, min_score: float) -> None:
+    """Semantic search over enriched bookmarks."""
+    results = search_from_file(input_json, query, top_k, min_score)
+    if not results:
+        click.echo("No results found.")
+        return
+    click.echo(f"\nTop {len(results)} results for: {query}\n")
+    for i, bm in enumerate(results, 1):
+        score = bm.get("search_score", 0)
+        title = bm.get("title", "Untitled")
+        url = bm.get("url", "")
+        cat = " > ".join(bm.get("category_breadcrumbs", [])[-2:])
+        click.echo(f"{i}. [{score}] {title}")
+        click.echo(f"   URL: {url}")
+        click.echo(f"   Cat: {cat}")
+        click.echo()
+
+
+@cli.command()
+@click.option("--host", type=str, default="127.0.0.1", help="Server host")
+@click.option("--port", type=int, default=8765, help="Server port")
+def serve(host: str, port: int) -> None:
+    """Start local HTTP server for browser-extension ingestion."""
+    run_server(host, port)
+
+
+@cli.command()
+@click.option(
+    "--vault-dir",
+    type=click.Path(path_type=Path),
+    default="output/vault",
+    help="Obsidian vault directory",
+)
+@click.option("--remote", type=str, default="origin", help="Git remote name")
+@click.option("--branch", type=str, default="main", help="Git branch name")
+def git_push(vault_dir: Path, remote: str, branch: str) -> None:
+    """Auto-commit and push Obsidian vault to git."""
+    import datetime
+    import subprocess
+
+    vault_dir = Path(vault_dir)
+    if not (vault_dir / ".git").exists():
+        click.echo(f"❌ {vault_dir} is not a git repository")
+        return
+
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    msg = f"vault: auto-sync {ts}"
+
+    try:
+        subprocess.run(["git", "-C", str(vault_dir), "add", "."], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(vault_dir), "commit", "-m", msg], check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "-C", str(vault_dir), "push", remote, branch], check=True, capture_output=True
+        )
+        click.echo(f"✓ Vault synced to {remote}/{branch} at {ts}")
+    except subprocess.CalledProcessError as e:
+        click.echo(f"⚠️ Git operation failed: {e}")
+
+
+@cli.command()
+@click.argument("input_json", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(path_type=Path),
+    default="output/tag_graph.gexf",
+    help="Output GEXF file",
+)
+def tag_graph(input_json: Path, output: Path) -> None:
+    """Build tag co-occurrence graph and export to GEXF."""
+    import itertools
+
+    from src.cerebro.utils import load_json
+
+    data = load_json(input_json)
+    bookmarks = data.get("bookmarks", []) if isinstance(data, dict) else data
+
+    # Build co-occurrence edges
+    edges: dict[tuple[str, str], int] = {}
+    for bm in bookmarks:
+        tags = bm.get("tags", [])
+        for a, b in itertools.combinations(sorted(set(tags)), 2):
+            key = (a, b)
+            edges[key] = edges.get(key, 0) + 1
+
+    # Write GEXF
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    nodes = sorted({t for pair in edges for t in pair})
+    with open(output, "w", encoding="utf-8") as f:
+        f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
+        f.write('<gexf xmlns="http://www.gexf.net/1.2draft" version="1.2">\n')
+        f.write('  <graph mode="static" defaultedgetype="undirected">\n')
+        f.write(f'    <nodes count="{len(nodes)}">\n')
+        for node in nodes:
+            f.write(f'      <node id="{node}" label="{node}" />\n')
+        f.write("    </nodes>\n")
+        f.write(f'    <edges count="{len(edges)}">\n')
+        for (a, b), w in sorted(edges.items()):
+            f.write(f'      <edge source="{a}" target="{b}" weight="{w}" />\n')
+        f.write("    </edges>\n")
+        f.write("  </graph>\n")
+        f.write("</gexf>\n")
+
+    click.echo(f"✓ Tag graph exported: {output} ({len(nodes)} nodes, {len(edges)} edges)")
 
 
 def main() -> None:
