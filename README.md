@@ -25,6 +25,10 @@ Bookmarks Cerebro parses, intelligently re-categorizes, and enriches your browse
 # Install with uv (recommended)
 uv pip install -e ".[dev]"
 
+# Install pre-commit hooks
+pre-commit install
+
+# Run the full pipeline
 # Run the full pipeline
 cerebro pipeline bookmarks.html --output ./vault/
 
