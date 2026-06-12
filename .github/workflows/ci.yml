@@ -21,32 +21,24 @@ jobs:
           enable-cache: true
       - name: Set up Python
         run: uv python install 3.11
-      - name: Create venv and install lint tools
+      - name: Install lint tools
         run: |
-          uv venv
-          uv pip install ruff mypy yamllint types-PyYAML types-beautifulsoup4
+          uv tool install ruff
+          uv tool install mypy
+          uv tool install yamllint
       - name: ruff check
-        run: uv run ruff check src/
+        run: uvx ruff check src/
       - name: ruff format check
-        run: uv run ruff format --check src/
+        run: uvx ruff format --check src/
       - name: mypy
-        run: PYTHONPATH=src uv run mypy --explicit-package-bases src/
-
-        run: |
-          uv venv
-          uv pip install -e ".[dev]"
+        run: uvx mypy --explicit-package-bases src/
+        run: uv tool install ruff mypy yamllint types-PyYAML types-beautifulsoup4
       - name: ruff check
-        run: uv run ruff check src/
+        run: uvx ruff check src/
       - name: ruff format check
-        run: uv run ruff format --check src/
+        run: uvx ruff format --check src/
       - name: mypy
-        run: PYTHONPATH=src uv run mypy --explicit-package-bases src/
-
-        run: uv run ruff check src/
-      - name: ruff format check
-        run: uv run ruff format --check src/
-      - name: mypy
-        run: uv run mypy src/
+        run: uvx mypy --explicit-package-bases src/
 
   test:
     runs-on: ubuntu-latest

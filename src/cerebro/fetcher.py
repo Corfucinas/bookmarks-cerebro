@@ -12,7 +12,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from src.cerebro.models import Bookmark
 
@@ -199,6 +199,10 @@ def _fetch_page(url: str, timeout: int = DEFAULT_TIMEOUT) -> dict[str, Any]:
         result["title"] = title_tag.get_text(strip=True) if title_tag else None
 
         canonical = soup.find("link", attrs={"rel": "canonical"})
+        if isinstance(canonical, Tag) and canonical.attrs.get("href"):
+            result["canonical_url"] = canonical.attrs["href"]
+        else:
+            result["canonical_url"] = url
         if canonical and canonical.attrs.get("href"):
             result["canonical_url"] = canonical.attrs["href"]
         else:
