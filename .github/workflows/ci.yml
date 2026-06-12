@@ -32,13 +32,6 @@ jobs:
         run: uvx ruff format --check src/
       - name: mypy
         run: uvx mypy --explicit-package-bases src/
-        run: uv tool install ruff mypy yamllint types-PyYAML types-beautifulsoup4
-      - name: ruff check
-        run: uvx ruff check src/
-      - name: ruff format check
-        run: uvx ruff format --check src/
-      - name: mypy
-        run: uvx mypy --explicit-package-bases src/
 
   test:
     runs-on: ubuntu-latest
