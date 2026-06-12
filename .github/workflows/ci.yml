@@ -30,6 +30,12 @@ jobs:
       - name: ruff format check
         run: uv run ruff format --check src/
       - name: mypy
+        run: PYTHONPATH=src uv run mypy --explicit-package-bases src/
+
+        run: uv run ruff check src/
+      - name: ruff format check
+        run: uv run ruff format --check src/
+      - name: mypy
         run: uv run mypy src/
 
   test:
