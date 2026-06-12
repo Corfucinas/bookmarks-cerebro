@@ -25,10 +25,6 @@ jobs:
         run: |
           uv venv
           uv pip install -e ".[dev]"
-        run: |
-          uv venv
-          uv pip install -e ".[dev]"
-        run: uv pip install -e ".[dev]"
       - name: ruff check
         run: uv run ruff check src/
       - name: ruff format check
@@ -53,10 +49,6 @@ jobs:
         run: |
           uv venv
           uv pip install -e ".[dev]"
-        run: |
-          uv venv
-          uv pip install -e ".[dev]"
-        run: uv pip install -e ".[dev]"
       - name: Run tests
         run: uv run pytest tests/ -v --tb=short
 
@@ -74,10 +66,6 @@ jobs:
         run: |
           uv venv
           uv pip install -e ".[dev]"
-        run: |
-          uv venv
-          uv pip install -e ".[dev]"
-        run: uv pip install -e ".[dev]"
       - name: Pipeline smoke test (no fetch)
         run: uv run python -m cerebro.cli pipeline .github/testdata/sample.html --taxonomy taxonomy.yaml --output-dir /tmp/cerebro-test --no-ml
       - name: Verify outputs

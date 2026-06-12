@@ -15,6 +15,9 @@ from cerebro.fetcher import _is_soft_dead
 from cerebro.search import build_index, search
 from cerebro.exporter_json import export_json
 from cerebro.exporter_html import export_html
+from cerebro.exporter_csv import export_csv
+from cerebro.exporter_jsonl import export_jsonl
+from cerebro.crosslinks import find_crosslinks
 
 
 def test_models():
@@ -77,9 +80,49 @@ def test_exporter_html():
     bookmarks = [Bookmark(id="t1", title="T", url="https://x.com")]
     path = export_html(bookmarks, "/tmp/test_cerebro.html")
     assert "https://x.com" in path.read_text()
+
+
+def test_exporter_csv():
     bookmarks = [Bookmark(id="t1", title="T", url="https://x.com")]
-    html = export_html(bookmarks, "/tmp/test_cerebro.html")
-    assert "https://x.com" in html
-    bookmarks = [Bookmark(id="t1", title="T", url="https://x.com")]
-    html = export_html(bookmarks, "Test", "2026-01-01")
-    assert "https://x.com" in html
+    path = export_csv(bookmarks, "/tmp/test_cerebro.csv")
+    assert path.exists()
+    text = path.read_text()
+    assert "id,title,url" in text
+    assert "https://x.com" in text
+
+
+def test_exporter_jsonl():
+    b1 = Bookmark(
+        id="a", title="A", url="https://example.com/1", domain="example.com", tags=["python", "ml"]
+    )
+    b2 = Bookmark(
+        id="b",
+        title="B",
+        url="https://example.com/2",
+        domain="example.com",
+        tags=["python", "ml", "rust"],
+    )
+    b3 = Bookmark(id="c", title="C", url="https://other.com/3", domain="other.com", tags=["games"])
+    path = export_jsonl([b1, b2, b3], "/tmp/test_cerebro.jsonl")
+    assert path.exists()
+    lines = path.read_text().strip().split("\n")
+    assert len(lines) == 3
+    parsed = json.loads(lines[0])
+    assert parsed["url"] == "https://example.com/1"
+
+
+def test_crosslinks():
+    b1 = Bookmark(
+        id="a", title="A", url="https://example.com/1", domain="example.com", tags=["python", "ml"]
+    )
+    b2 = Bookmark(
+        id="b",
+        title="B",
+        url="https://example.com/2",
+        domain="example.com",
+        tags=["python", "ml", "rust"],
+    )
+    b3 = Bookmark(id="c", title="C", url="https://other.com/3", domain="other.com", tags=["games"])
+    bookmarks = find_crosslinks([b1, b2, b3])
+    # b1 and b2 share domain, so they should be related via domain match
+    assert any(len(bm.related_ids) > 0 for bm in bookmarks)

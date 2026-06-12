@@ -106,11 +106,9 @@ def _dedup_fuzzy(bookmarks: list[Bookmark], threshold: float) -> list[Bookmark]:
         if len(group) > 1:
             groups.append(group)
 
-    # Mark all bookmarks in fuzzy groups
     group_map: dict[str, str] = {}
     for gidx, group in enumerate(groups):
         gid = f"fuzzy_{gidx:04d}"
-        canonical = max(group, key=lambda bm: bm.confidence_score)
         for bm in group:
             bm.duplicate_group_id = gid
             bm.duplicate_urls = [x.url for x in group if x.url != bm.url]
@@ -138,7 +136,6 @@ def _mark_groups(
                 bm.duplicate_group_id = gid
                 bm.duplicate_urls = [u for u in all_urls if u != bm.url]
                 if bm.id != canonical.id and bm.raw_folder_path:
-                    # Preserve alias folder paths on canonical
                     if not canonical.raw_folder_path:
                         canonical.raw_folder_path = bm.raw_folder_path
                     elif bm.raw_folder_path not in (canonical.raw_folder_path or "").split(" | "):
