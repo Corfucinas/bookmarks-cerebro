@@ -21,7 +21,17 @@ jobs:
           enable-cache: true
       - name: Set up Python
         run: uv python install 3.11
-      - name: Create venv and install deps
+      - name: Create venv and install lint tools
+        run: |
+          uv venv
+          uv pip install ruff mypy yamllint types-PyYAML types-beautifulsoup4
+      - name: ruff check
+        run: uv run ruff check src/
+      - name: ruff format check
+        run: uv run ruff format --check src/
+      - name: mypy
+        run: PYTHONPATH=src uv run mypy --explicit-package-bases src/
+
         run: |
           uv venv
           uv pip install -e ".[dev]"
