@@ -50,3 +50,7 @@ data/
 tmp/
 temp/
 *.tmp
+
+# CI test fixtures
+!.github/testdata/
+!.github/testdata/*.html

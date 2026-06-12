@@ -271,9 +271,31 @@ def generate_description(bookmark: Bookmark) -> str:
 def enrich_bookmark(bookmark: Bookmark) -> Bookmark:
     """Enrich a single bookmark with tags and description."""
     bookmark.tags = extract_tags(bookmark)
-    if not bookmark.description:
-        bookmark.description = generate_description(bookmark)
-        bookmark.description_source = "synthetic"
+    if not bookmark.description or bookmark.description_source == "synthetic":
+        # Prefer fetched metadata in order: og_description > meta description > og_title > title
+        fm = bookmark.fetched_metadata
+        fetched_desc = fm.get("og_description") or fm.get("description")
+        fetched_title = fm.get("og_title") or fm.get("title")
+        if fetched_desc:
+            bookmark.description = fetched_desc
+            bookmark.description_source = "fetched"
+        elif fetched_title and fetched_title != bookmark.title:
+            bookmark.description = f"{fetched_title} | Source: {bookmark.domain}"
+            bookmark.description_source = "fetched"
+        else:
+            bookmark.description = generate_description(bookmark)
+            bookmark.description_source = "synthetic"
+    else:
+        # Even if we have an existing description, append fetched title if different
+        fm = bookmark.fetched_metadata
+        fetched_title = fm.get("og_title") or fm.get("title")
+        if (
+            fetched_title
+            and fetched_title != bookmark.title
+            and fetched_title not in bookmark.description
+        ):
+            bookmark.description = f"{fetched_title} | {bookmark.description}"
+            bookmark.description_source = "fetched+enriched"
     return bookmark
 
 

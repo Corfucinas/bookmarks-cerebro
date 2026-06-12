@@ -10,10 +10,12 @@ import click
 
 from . import __version__
 from .classifier import classify_bookmarks
+from .dedup import detect_duplicates
 from .enricher import enrich_bookmarks
 from .exporter_html import export_html
 from .exporter_json import export_json
 from .exporter_obsidian import export_obsidian
+from .fetcher import fetch_bookmarks
 from .parser import parse_bookmarks
 from .utils import setup_logging
 
@@ -161,8 +163,21 @@ def export_html_cmd(input_json: Path, output: Path) -> None:
 )
 @click.option("--output-dir", "-d", type=click.Path(path_type=Path), default="data")
 @click.option("--no-ml", is_flag=True, help="Skip ML fallback classification")
-def pipeline(input_html: Path, taxonomy: Path, output_dir: Path, no_ml: bool) -> None:
-    """Run full pipeline: parse → classify → enrich → export."""
+@click.option("--check-dead", is_flag=True, help="Fetch all pages and flag dead links")
+@click.option("--fetch-live", is_flag=True, help="Fetch live page metadata (title, OG tags)")
+@click.option("--fetch-workers", type=int, default=20, help="Parallel fetch workers")
+@click.option("--fetch-timeout", type=int, default=15, help="Fetch timeout per page")
+def pipeline(
+    input_html: Path,
+    taxonomy: Path,
+    output_dir: Path,
+    no_ml: bool,
+    check_dead: bool,
+    fetch_live: bool,
+    fetch_workers: int,
+    fetch_timeout: int,
+) -> None:
+    """Run full pipeline: parse → classify → dedup → [fetch] → enrich → export."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     click.echo("📖 Parsing...")
@@ -170,6 +185,13 @@ def pipeline(input_html: Path, taxonomy: Path, output_dir: Path, no_ml: bool) ->
 
     click.echo("🧠 Classifying...")
     bookmarks = classify_bookmarks(bookmarks, taxonomy, train_ml=not no_ml)
+
+    click.echo("🔍 Detecting duplicates...")
+    bookmarks = detect_duplicates(bookmarks)
+
+    if check_dead or fetch_live:
+        click.echo("🌐 Fetching live pages..." if fetch_live else "💀 Checking for dead links...")
+        bookmarks = fetch_bookmarks(bookmarks, max_workers=fetch_workers, timeout=fetch_timeout)
 
     click.echo("🏷️ Enriching...")
     bookmarks = enrich_bookmarks(bookmarks)

@@ -25,6 +25,12 @@ class Bookmark:
     description: str = ""
     description_source: str = "synthetic"  # "fetched" | "synthetic" | ""
     inferred_metadata: dict[str, Any] = field(default_factory=dict)
+    fetched_metadata: dict[str, Any] = field(default_factory=dict)
+    duplicate_group_id: str | None = None
+    duplicate_urls: list[str] = field(default_factory=list)
+    is_dead_link: bool = False
+    http_status: int | None = None
+    related_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {

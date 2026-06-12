@@ -30,8 +30,8 @@ def _frontmatter(bookmark: Bookmark) -> dict[str, Any]:
     }
 
 
-def _markdown_body(bookmark: Bookmark, related: list[Bookmark]) -> str:
-    """Build markdown body."""
+def _markdown_body(bookmark: Bookmark, related: list[tuple[Bookmark, str]]) -> str:
+    """Build markdown body with dead link / duplicate / OG metadata."""
     lines = [
         f"# {bookmark.title}",
         "",
@@ -39,28 +39,81 @@ def _markdown_body(bookmark: Bookmark, related: list[Bookmark]) -> str:
         "",
         "## Link",
         f"- [Open]({bookmark.url})",
-        "",
-        "## Metadata",
-        f"- **Domain:** `{bookmark.domain}`",
-        f"- **Added:** {bookmark.add_date_iso or 'Unknown'}",
-        f"- **Category:** {' > '.join(bookmark.category_breadcrumbs)}",
-        f"- **Confidence:** {bookmark.confidence_score:.2f}",
-        "",
-        "## Tags",
     ]
+
+    # Dead link warning
+    if bookmark.is_dead_link:
+        status_str = str(bookmark.http_status) if bookmark.http_status else "unknown"
+        lines.extend(
+            [
+                "",
+                "> ⚠️ **Dead link detected** — HTTP status: " + status_str,
+            ]
+        )
+
+    # Duplicate warning
+    if bookmark.duplicate_group_id:
+        lines.extend(
+            [
+                "",
+                f"> 🔗 **Duplicate group:** `{bookmark.duplicate_group_id}`",
+            ]
+        )
+
+    # Fetched OG metadata
+    fm = bookmark.fetched_metadata
+    if fm and not bookmark.is_dead_link:
+        og_title = fm.get("og_title")
+        og_image = fm.get("og_image")
+        og_type = fm.get("og_type")
+        if og_title or og_image or og_type:
+            lines.extend(["", "## Fetched Metadata"])
+            if og_title:
+                lines.append(f"- **OG Title:** {og_title}")
+            if og_type:
+                lines.append(f"- **OG Type:** {og_type}")
+            if og_image:
+                lines.append(f"- **OG Image:** {og_image}")
+
+    lines.extend(
+        [
+            "",
+            "## Metadata",
+            f"- **Domain:** `{bookmark.domain}`",
+            f"- **Added:** {bookmark.add_date_iso or 'Unknown'}",
+            f"- **Category:** {' > '.join(bookmark.category_breadcrumbs)}",
+            f"- **Confidence:** {bookmark.confidence_score:.2f}",
+        ]
+    )
+
+    if bookmark.duplicate_group_id:
+        lines.append(f"- **Duplicate group:** `{bookmark.duplicate_group_id}`")
+
+    lines.extend(["", "## Tags"])
     for tag in bookmark.tags:
         lines.append(f"- #{tag}")
 
     if related:
         lines.extend(["", "## Related Bookmarks"])
-        for rel in related[:10]:
+        for rel, reason in related:
             rel_path = "/".join(rel.category_breadcrumbs)
-            lines.append(f"- [{rel.title}]({rel.safe_title}.md) — {rel_path}")
+            lines.append(f"- [{rel.title}]({rel.safe_title}.md) — _{reason}_ — {rel_path}")
 
     if bookmark.icon:
         lines.extend(["", f"![Icon]({bookmark.icon})"])
 
     return "\n".join(lines)
+
+
+def _related_label(bm: Bookmark, other: Bookmark) -> str:
+    """Describe why two bookmarks are related."""
+    if bm.category_path == other.category_path:
+        return "Same category"
+    if bm.domain and bm.domain == other.domain:
+        return f"Same domain: {bm.domain}"
+    if bm.add_date_epoch and other.add_date_epoch:
+        return "Bookmarked together"
+    return "Related"
 
 
 def export_obsidian(
@@ -74,17 +127,46 @@ def export_obsidian(
 
     # Group by category for related links
     by_category: dict[str, list[Bookmark]] = {}
+    by_domain: dict[str, list[Bookmark]] = {}
     for bm in bookmarks:
         path = bm.category_path
         by_category.setdefault(path, []).append(bm)
+        if bm.domain:
+            by_domain.setdefault(bm.domain, []).append(bm)
 
     count = 0
     for bm in bookmarks:
         cat_dir = vault_dir / "/".join(bm.category_breadcrumbs)
         ensure_dir(cat_dir)
 
-        # Find related bookmarks in same category
-        related = [r for r in by_category.get(bm.category_path, []) if r.id != bm.id][:max_related]
+        # Build related bookmarks from three signals:
+        # 1. Same category
+        # 2. Same domain
+        # 3. Temporal co-occurrence (bookmarked within 30 min)
+        related: list[tuple[Bookmark, str]] = []
+        related_ids: set[str] = set()
+        # Signal 1: same category
+        for r in by_category.get(bm.category_path, []):
+            if r.id != bm.id and r.id not in related_ids:
+                related.append((r, "Same category"))
+                related_ids.add(r.id)
+        # Signal 2: same domain
+        if bm.domain:
+            for r in by_domain.get(bm.domain, []):
+                if r.id != bm.id and r.id not in related_ids and len(related) < max_related * 2:
+                    related.append((r, f"Same domain: {bm.domain}"))
+                    related_ids.add(r.id)
+        # Signal 3: temporal (bookmarked within 30 minutes)
+        if bm.add_date_epoch:
+            bm_epoch = int(bm.add_date_epoch) if bm.add_date_epoch else 0
+            for r in bookmarks:
+                if r.id != bm.id and r.id not in related_ids and r.add_date_epoch:
+                    diff = abs(int(r.add_date_epoch) - bm_epoch)
+                    if diff < 1800 and len(related) < max_related * 3:
+                        related.append((r, "Bookmarked together"))
+                        related_ids.add(r.id)
+        related = related[:max_related]
+        bm.related_ids = list(related_ids)
 
         front = _frontmatter(bm)
         body = _markdown_body(bm, related)
