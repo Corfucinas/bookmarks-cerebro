@@ -36,6 +36,7 @@ from src.cerebro.db import (
     upsert_bookmark,
 )
 from src.cerebro.models import Bookmark
+from src.cerebro.security import add_security_middleware, sanitize_ingest_payload
 from src.cerebro.utils import compute_id
 
 # Template directory relative to this file
@@ -44,6 +45,8 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 app = FastAPI(title="Bookmarks Cerebro Dashboard", version="1.0.0")
 
+# Register security middleware (headers, CORS, request size, rate limiting)
+add_security_middleware(app)
 # Constants
 PER_PAGE = 50
 
@@ -303,24 +306,27 @@ async def health(db: DBSession) -> JSONResponse:
 
 @app.post("/api/ingest", response_class=JSONResponse)
 async def ingest_bookmark(
+    request: Request,
     db: DBSession,
-    url: str,
-    title: str,
-    tags: list[str] | None = None,
-    description: str | None = None,
 ) -> JSONResponse:
     """Create or update a bookmark from browser extension or API.
 
     Returns the bookmark ID and creation status.
     """
-    bookmark_id = compute_id(url, title)
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
+
+    sanitized = sanitize_ingest_payload(payload)
+    bookmark_id = compute_id(sanitized["url"], sanitized["title"])
 
     bookmark = Bookmark(
         id=bookmark_id,
-        url=url,
-        title=title,
-        tags=tags or [],
-        description=description or "",
+        url=sanitized["url"],
+        title=sanitized["title"],
+        tags=sanitized["tags"],
+        description=sanitized["description"],
         domain="",
         tld_plus_one="",
         category_breadcrumbs=[],

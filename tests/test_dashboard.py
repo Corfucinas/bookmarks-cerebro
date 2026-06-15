@@ -133,7 +133,7 @@ def test_api_ingest_creates_bookmark(db_session, test_client):
     """Test that POST /api/ingest creates bookmark and returns 201."""
     response = test_client.post(
         "/api/ingest",
-        params={
+        json={
             "url": "https://example.com/new",
             "title": "New Bookmark",
             "tags": ["new", "test"],

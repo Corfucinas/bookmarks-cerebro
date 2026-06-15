@@ -12,12 +12,15 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException
+
 from src.cerebro.config import load_settings
 from src.cerebro.db import get_session, upsert_bookmark
 from src.cerebro.exporter_html import export_html
 from src.cerebro.exporter_json import export_json
 from src.cerebro.exporter_obsidian import export_obsidian
 from src.cerebro.models import Bookmark
+from src.cerebro.security import MAX_CONTENT_LENGTH_BYTES, sanitize_ingest_payload
 from src.cerebro.utils import compute_id, extract_domain, extract_tld_plus_one, load_json
 
 logger = logging.getLogger("cerebro")
@@ -34,12 +37,25 @@ class CerebroHandler(BaseHTTPRequestHandler):
     vault_dir: Path | None = None
     html_output: Path | None = None
 
+    SECURITY_HEADERS = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "1; mode=block",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    }
+
+    def _send_common_headers(self) -> None:
+        for name, value in self.SECURITY_HEADERS.items():
+            self.send_header(name, value)
+
     def _json_response(self, status: int, data: dict[str, Any]) -> None:
         body = json.dumps(data).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Length", str(len(body)))
+        self._send_common_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -48,6 +64,7 @@ class CerebroHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self._send_common_headers()
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
@@ -61,9 +78,17 @@ class CerebroHandler(BaseHTTPRequestHandler):
             self._json_response(404, {"error": "Not found"})
             return
 
-        content_length = int(self.headers.get("Content-Length", 0))
+        content_length_header = self.headers.get("Content-Length", "0")
+        try:
+            content_length = int(content_length_header)
+        except ValueError:
+            self._json_response(400, {"error": "Invalid Content-Length header"})
+            return
         if content_length == 0:
             self._json_response(400, {"error": "Empty body"})
+            return
+        if content_length > MAX_CONTENT_LENGTH_BYTES:
+            self._json_response(413, {"error": "Payload too large"})
             return
 
         raw = self.rfile.read(content_length)
@@ -73,22 +98,20 @@ class CerebroHandler(BaseHTTPRequestHandler):
             self._json_response(400, {"error": f"Invalid JSON: {e}"})
             return
 
-        url = payload.get("url", "").strip()
-        title = payload.get("title", "").strip() or url
-        tags = payload.get("tags", [])
-        description = payload.get("description", "")
-        if not url:
-            self._json_response(400, {"error": "Missing 'url'"})
+        try:
+            sanitized = sanitize_ingest_payload(payload)
+        except HTTPException as exc:
+            self._json_response(exc.status_code, {"error": exc.detail})
             return
 
         bm = Bookmark(
-            id=compute_id(url, title),
-            url=url,
-            title=title,
-            domain=extract_domain(url),
-            tld_plus_one=extract_tld_plus_one(url),
-            tags=tags if isinstance(tags, list) else [],
-            description=description,
+            id=compute_id(sanitized["url"], sanitized["title"]),
+            url=sanitized["url"],
+            title=sanitized["title"],
+            domain=extract_domain(sanitized["url"]),
+            tld_plus_one=extract_tld_plus_one(sanitized["url"]),
+            tags=sanitized["tags"],
+            description=sanitized["description"],
         )
 
         with get_session(self.db_url) as session:
