@@ -1,0 +1,24 @@
+# Bookmarks Cerebro configuration file.
+# Copy this to your working directory as `.cerebro.toml` and edit as needed.
+
+[database]
+path = "data/cerebro.db"
+migrations_path = "src/cerebro/migrations"
+
+[server]
+host = "127.0.0.1"
+port = 8765
+
+[dashboard]
+host = "127.0.0.1"
+port = 8080
+items_per_page = 50
+
+[fetcher]
+timeout = 10
+max_workers = 10
+user_agent = "Bookmarks-Cerebro/1.0"
+
+[ml]
+model_path = "data/model.joblib"
+enable_classifier = true

@@ -4,20 +4,18 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from cerebro.crosslinks import find_crosslinks
+from cerebro.dedup import detect_duplicates
+from cerebro.exporter_csv import export_csv
+from cerebro.exporter_html import export_html
+from cerebro.exporter_json import export_json
+from cerebro.exporter_jsonl import export_jsonl
+from cerebro.fetcher import _is_soft_dead
 from cerebro.models import Bookmark
 from cerebro.parser import parse_bookmarks
-from cerebro.dedup import detect_duplicates
-from cerebro.fetcher import _is_soft_dead
 from cerebro.search import build_index, search
-from cerebro.exporter_json import export_json
-from cerebro.exporter_html import export_html
-from cerebro.exporter_csv import export_csv
-from cerebro.exporter_jsonl import export_jsonl
-from cerebro.crosslinks import find_crosslinks
 
 
 def test_models():

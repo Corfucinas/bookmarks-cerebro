@@ -24,13 +24,15 @@ repos:
         args: ["--fix", "--exit-non-zero-on-fix"]
       - id: ruff-format
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.10.0
+  - repo: local
     hooks:
       - id: mypy
-        additional_dependencies: ["types-PyYAML", "types-beautifulsoup4"]
+        name: mypy
+        entry: bash -c 'PYTHONPATH=src uv run mypy --explicit-package-bases src/'
+        language: system
+        types: [python]
         pass_filenames: false
-        entry: bash -c 'PYTHONPATH=src mypy --explicit-package-bases src/'
+        always_run: true
 
   - repo: https://github.com/adrienverge/yamllint
     rev: v1.35.1

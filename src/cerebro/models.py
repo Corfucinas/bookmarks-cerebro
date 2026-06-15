@@ -59,8 +59,34 @@ class Bookmark:
     def category_path(self) -> str:
         return "/".join(self.category_breadcrumbs) if self.category_breadcrumbs else "Uncategorized"
 
+    def to_full_dict(self) -> dict[str, Any]:
+        """Serialize the full bookmark, including DB-only fields."""
+        return {
+            "id": self.id,
+            "url": self.url,
+            "title": self.title,
+            "raw_folder_path": self.raw_folder_path,
+            "add_date_epoch": self.add_date_epoch,
+            "add_date_iso": self.add_date_iso,
+            "icon": self.icon,
+            "domain": self.domain,
+            "tld_plus_one": self.tld_plus_one,
+            "category_breadcrumbs": self.category_breadcrumbs,
+            "confidence_score": self.confidence_score,
+            "tags": self.tags,
+            "description": self.description,
+            "description_source": self.description_source,
+            "inferred_metadata": self.inferred_metadata,
+            "fetched_metadata": self.fetched_metadata,
+            "duplicate_group_id": self.duplicate_group_id,
+            "duplicate_urls": self.duplicate_urls,
+            "is_dead_link": self.is_dead_link,
+            "http_status": self.http_status,
+            "related_ids": self.related_ids,
+        }
+
     @property
     def safe_title(self) -> str:
-        from .utils import safe_filename
+        from src.cerebro.utils import safe_filename
 
         return safe_filename(self.title)
