@@ -1,0 +1,30 @@
+# Version control
+.git/
+
+# Python environment
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Build artifacts
+*.egg-info/
+
+# Project-specific directories
+data/
+output/
+.omo/
+.planning/
+
+# Documentation (keep README.md for package build)
+docs/
+*.md
+!README.md
+
+# CI/CD
+.github/
+
+# Data files (not needed in image)
+*.json
+*.html
+*.csv
+*.gexf

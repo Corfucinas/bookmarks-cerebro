@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Bookmarks - Cerebro{% endblock %}
+
+{% block content %}
+<h1>📚 Bookmarks</h1>
+
+<div class="search-box">
+    <input
+        type="search"
+        class="search-input"
+        placeholder="Search bookmarks..."
+        hx-get="/search"
+        hx-trigger="keyup changed delay:300ms"
+        hx-target="#bookmark-results"
+        name="q"
+        id="search-input"
+    >
+</div>
+
+<div id="bookmark-results">
+    {% include "partials/bookmark_rows.html" %}
+</div>
+
+{% include "partials/pagination.html" %}
+{% endblock %}

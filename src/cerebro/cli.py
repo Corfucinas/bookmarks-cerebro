@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 import click
 
 from src.cerebro import __version__
 from src.cerebro.classifier import classify_bookmarks
+from src.cerebro.config import load_settings
 from src.cerebro.crosslinks import find_crosslinks
+from src.cerebro.dashboard import run_dashboard
+from src.cerebro.db import count_bookmarks, count_dead_links, get_session
 from src.cerebro.dedup import detect_duplicates
 from src.cerebro.enricher import enrich_bookmarks
 from src.cerebro.exporter_csv import export_csv
@@ -18,10 +22,11 @@ from src.cerebro.exporter_json import export_json
 from src.cerebro.exporter_jsonl import export_jsonl
 from src.cerebro.exporter_obsidian import export_obsidian
 from src.cerebro.fetcher import fetch_bookmarks
+from src.cerebro.models import Bookmark
 from src.cerebro.parser import parse_bookmarks
 from src.cerebro.search import search_from_file
 from src.cerebro.server import run_server
-from src.cerebro.utils import setup_logging
+from src.cerebro.utils import load_json, save_json, setup_logging
 
 logger = logging.getLogger("cerebro")
 
@@ -29,10 +34,14 @@ logger = logging.getLogger("cerebro")
 @click.group()
 @click.version_option(version=__version__, prog_name="cerebro")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
-def cli(verbose: bool) -> None:
+@click.option("--config", "-c", type=click.Path(path_type=Path), help="Path to .cerebro.toml")
+@click.pass_context
+def cli(ctx: click.Context, verbose: bool, config: Path | None) -> None:
     """Bookmarks Cerebro — parse, categorize, enrich, and export bookmarks."""
     level = logging.DEBUG if verbose else logging.INFO
     setup_logging(level)
+    ctx.ensure_object(dict)
+    ctx.obj["settings"] = load_settings(config)
 
 
 @cli.command()
@@ -43,7 +52,6 @@ def cli(verbose: bool) -> None:
 def parse(input_html: Path, output: Path) -> None:
     """Parse Netscape Bookmark HTML to raw JSON."""
     bookmarks = parse_bookmarks(input_html)
-    from src.cerebro.utils import save_json
 
     save_json(output, [bm.to_dict() for bm in bookmarks])
     click.echo(f"✓ Parsed {len(bookmarks)} bookmarks → {output}")
@@ -63,7 +71,6 @@ def parse(input_html: Path, output: Path) -> None:
 @click.option("--no-ml", is_flag=True, help="Skip ML fallback classification")
 def classify(input_json: Path, taxonomy: Path, output: Path, no_ml: bool) -> None:
     """Classify bookmarks into taxonomy."""
-    from src.cerebro.utils import load_json
 
     data = load_json(input_json)
     from src.cerebro.models import Bookmark
@@ -86,7 +93,6 @@ def classify(input_json: Path, taxonomy: Path, output: Path, no_ml: bool) -> Non
 )
 def enrich(input_json: Path, output: Path) -> None:
     """Enrich bookmarks with tags and descriptions."""
-    from src.cerebro.utils import load_json
 
     data = load_json(input_json)
     from src.cerebro.models import Bookmark
@@ -123,7 +129,6 @@ def enrich(input_json: Path, output: Path) -> None:
 )
 def dedup(input_json: Path, output: Path, mode: str, threshold: float) -> None:
     """Detect and mark duplicate bookmarks."""
-    from src.cerebro.models import Bookmark
     from src.cerebro.utils import load_json
 
     data = load_json(input_json)
@@ -152,7 +157,6 @@ def export() -> None:
 )
 def export_json_cmd(input_json: Path, output: Path) -> None:
     """Export to JSON."""
-    from src.cerebro.utils import load_json
 
     data = load_json(input_json)
     from src.cerebro.models import Bookmark
@@ -167,7 +171,6 @@ def export_json_cmd(input_json: Path, output: Path) -> None:
 @click.option("--vault-dir", "-d", type=click.Path(path_type=Path), default="data/vault")
 def export_obsidian_cmd(input_json: Path, vault_dir: Path) -> None:
     """Export to Obsidian markdown vault."""
-    from src.cerebro.utils import load_json
 
     data = load_json(input_json)
     from src.cerebro.models import Bookmark
@@ -187,7 +190,6 @@ def export_obsidian_cmd(input_json: Path, vault_dir: Path) -> None:
 )
 def export_html_cmd(input_json: Path, output: Path) -> None:
     """Export to Netscape Bookmark HTML."""
-    from src.cerebro.utils import load_json
 
     data = load_json(input_json)
     from src.cerebro.models import Bookmark
@@ -204,7 +206,6 @@ def export_html_cmd(input_json: Path, output: Path) -> None:
 )
 def export_jsonl_cmd(input_json: Path, output: Path) -> None:
     """Export to JSONL (one JSON object per line)."""
-    from src.cerebro.models import Bookmark
     from src.cerebro.utils import load_json
 
     data = load_json(input_json)
@@ -220,7 +221,6 @@ def export_jsonl_cmd(input_json: Path, output: Path) -> None:
 )
 def export_csv_cmd(input_json: Path, output: Path) -> None:
     """Export to CSV."""
-    from src.cerebro.models import Bookmark
     from src.cerebro.utils import load_json
 
     data = load_json(input_json)
@@ -310,11 +310,64 @@ def search_cmd(input_json: Path, query: str, top_k: int, min_score: float) -> No
 
 
 @cli.command()
+@click.pass_obj
+def config(obj: dict[str, Any]) -> None:
+    """Print the loaded configuration."""
+    settings = obj["settings"]
+    click.echo(f"database.path = {settings.database.path}")
+    click.echo(f"database.migrations_path = {settings.database.migrations_path}")
+    click.echo(f"server.host = {settings.server.host}")
+    click.echo(f"server.port = {settings.server.port}")
+    click.echo(f"dashboard.host = {settings.dashboard.host}")
+    click.echo(f"dashboard.port = {settings.dashboard.port}")
+    click.echo(f"fetcher.timeout = {settings.fetcher.timeout}")
+    click.echo(f"fetcher.max_workers = {settings.fetcher.max_workers}")
+    click.echo(f"ml.enable_classifier = {settings.ml.enable_classifier}")
+
+
+@cli.command()
+@click.pass_obj
+def migrate_db(obj: dict[str, Any]) -> None:
+    """Create or upgrade the SQLite database schema."""
+    settings = obj["settings"]
+    with get_session(settings.db_url) as session:
+        total = count_bookmarks(session)
+    click.echo(f"✓ Database ready at {settings.database.path}")
+    click.echo(f"  Existing bookmarks: {total}")
+
+
+@cli.command()
+@click.pass_obj
+def db_status(obj: dict[str, Any]) -> None:
+    """Show database status and counts."""
+    settings = obj["settings"]
+    with get_session(settings.db_url) as session:
+        total = count_bookmarks(session)
+        dead = count_dead_links(session)
+    click.echo(f"Database: {settings.database.path}")
+    click.echo(f"  Total bookmarks: {total}")
+    click.echo(f"  Dead links: {dead}")
+
+
+@cli.command()
 @click.option("--host", type=str, default="127.0.0.1", help="Server host")
 @click.option("--port", type=int, default=8765, help="Server port")
 def serve(host: str, port: int) -> None:
     """Start local HTTP server for browser-extension ingestion."""
     run_server(host, port)
+
+
+@cli.command()
+@click.option("--host", type=str, default=None, help="Dashboard host")
+@click.option("--port", type=int, default=None, help="Dashboard port")
+@click.pass_obj
+def dashboard(obj: dict[str, Any], host: str | None, port: int | None) -> None:
+    """Start web dashboard for browsing bookmarks."""
+    settings = obj["settings"]
+    run_dashboard(
+        host=host or settings.dashboard.host,
+        port=port or settings.dashboard.port,
+    )
 
 
 @cli.command()
@@ -364,8 +417,6 @@ def git_push(vault_dir: Path, remote: str, branch: str) -> None:
 def tag_graph(input_json: Path, output: Path) -> None:
     """Build tag co-occurrence graph and export to GEXF."""
     import itertools
-
-    from src.cerebro.utils import load_json
 
     data = load_json(input_json)
     bookmarks = data.get("bookmarks", []) if isinstance(data, dict) else data
@@ -417,7 +468,6 @@ def tag_graph(input_json: Path, output: Path) -> None:
 )
 def crosslinks(input_json: Path, output: Path, export_format: str) -> None:
     """Find cross-links between bookmarks and export relations."""
-    from src.cerebro.models import Bookmark
     from src.cerebro.utils import load_json
 
     data = load_json(input_json)

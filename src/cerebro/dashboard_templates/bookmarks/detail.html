@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}{{ bookmark.title }} - Cerebro{% endblock %}
+
+{% block content %}
+<div class="detail-header">
+    <h1 class="detail-title">{{ bookmark.title }}</h1>
+    {% if bookmark.is_dead_link %}
+    <span class="badge badge-dead">⚠️ Dead Link</span>
+    {% endif %}
+</div>
+
+<div class="detail-url">
+    <strong>URL:</strong> <a href="{{ bookmark.url }}" target="_blank" rel="noopener">{{ bookmark.url }}</a>
+</div>
+
+{% if bookmark.description %}
+<div class="detail-section">
+    <h3>Description</h3>
+    <p>{{ bookmark.description }}</p>
+</div>
+{% endif %}
+
+<div class="detail-section">
+    <h3>Metadata</h3>
+    <table>
+        <tbody>
+            <tr>
+                <td><strong>Domain</strong></td>
+                <td>{{ bookmark.domain or 'N/A' }}</td>
+            </tr>
+            <tr>
+                <td><strong>Category</strong></td>
+                <td>{{ bookmark.category_path }}</td>
+            </tr>
+            <tr>
+                <td><strong>Confidence</strong></td>
+                <td>{{ "%.1f"|format(bookmark.confidence_score * 100) }}%</td>
+            </tr>
+            <tr>
+                <td><strong>Added</strong></td>
+                <td>{{ bookmark.add_date_iso or 'N/A' }}</td>
+            </tr>
+            {% if bookmark.http_status %}
+            <tr>
+                <td><strong>HTTP Status</strong></td>
+                <td>{{ bookmark.http_status }}</td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+{% if bookmark.tags %}
+<div class="detail-section">
+    <h3>Tags</h3>
+    <div class="bookmark-meta">
+        {% for tag in bookmark.tags %}
+        <span class="tag">{{ tag }}</span>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if bookmark.related_ids %}
+<div class="detail-section">
+    <h3>Related Bookmarks</h3>
+    <ul>
+        {% for rid in bookmark.related_ids[:10] %}
+        <li><a href="/bookmark/{{ rid }}">{{ rid }}</a></li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+<div class="detail-section">
+    <h3>Folders</h3>
+    <p>
+        {% if bookmark.raw_folder_path %}
+        {{ bookmark.raw_folder_path }}
+        {% else %}
+        <em>No folder information</em>
+        {% endif %}
+    </p>
+</div>
+
+<p style="margin-top: 2rem;">
+    <a href="/bookmarks" class="secondary">← Back to Bookmarks</a>
+</p>
+{% endblock %}

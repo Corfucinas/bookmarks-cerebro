@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Statistics - Cerebro{% endblock %}
+
+{% block content %}
+<h1>📊 Statistics</h1>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ total }}</div>
+        <div class="stat-label">Total Bookmarks</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-value">{{ dead_links }}</div>
+        <div class="stat-label">Dead Links</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-value">{{ "%.0f"|format((total - dead_links) / total * 100) if total > 0 else 0 }}%</div>
+        <div class="stat-label">Health Score</div>
+    </div>
+</div>
+
+{% if top_categories %}
+<div class="detail-section">
+    <h3>Top Categories</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Category</th>
+                <th>Count</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for category, count in top_categories %}
+            <tr>
+                <td>{{ category }}</td>
+                <td>{{ count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<p style="margin-top: 2rem;">
+    <a href="/bookmarks" class="secondary">← Back to Bookmarks</a>
+</p>
+{% endblock %}

@@ -1,0 +1,33 @@
+{% if bookmarks %}
+<div class="bookmark-grid">
+    {% for bookmark in bookmarks %}
+    <article class="bookmark-card">
+        <h2 class="bookmark-title">
+            <a href="/bookmark/{{ bookmark.id }}">{{ bookmark.title }}</a>
+            {% if bookmark.is_dead_link %}
+            <span class="badge badge-dead">⚠️ Dead</span>
+            {% endif %}
+        </h2>
+        <p class="bookmark-url">{{ bookmark.url }}</p>
+        {% if bookmark.description %}
+        <p style="color: var(--muted); font-size: 0.9rem; margin-bottom: 0.5rem;">
+            {{ bookmark.description[:200] }}{% if bookmark.description|length > 200 %}...{% endif %}
+        </p>
+        {% endif %}
+        <div class="bookmark-meta">
+            {% if bookmark.category_breadcrumbs %}
+            <span class="category">{{ bookmark.category_path }}</span>
+            {% endif %}
+            {% for tag in bookmark.tags[:5] %}
+            <span class="tag">{{ tag }}</span>
+            {% endfor %}
+        </div>
+    </article>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <h3>No bookmarks found</h3>
+    <p>Start adding bookmarks through the browser extension or CLI.</p>
+</div>
+{% endif %}

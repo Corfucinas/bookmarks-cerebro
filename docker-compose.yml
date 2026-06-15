@@ -1,0 +1,27 @@
+services:
+  cerebro:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8765:8765"
+    command: python -m cerebro.cli serve --host 0.0.0.0 --port 8765
+    volumes:
+      - cerebro-data:/app/data
+    restart: unless-stopped
+
+  cerebro-dashboard:
+    profiles:
+      - full
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    command: python -m cerebro.cli dashboard --host 0.0.0.0 --port 8080
+    volumes:
+      - cerebro-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  cerebro-data:
