@@ -259,6 +259,39 @@ def load_bookmarks(session: Session, *, limit: int | None = None) -> list[Bookma
     return get_bookmarks(session, limit=limit)
 
 
+def get_dead_bookmarks(
+    session: Session,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[Bookmark]:
+    """Fetch bookmarks flagged as dead links."""
+    stmt = (
+        sa.select(bookmarks_table)
+        .where(bookmarks_table.c.is_dead_link.is_(True))
+        .order_by(bookmarks_table.c.updated_at.desc())
+        .offset(offset)
+    )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    rows = session.execute(stmt).all()
+    return [_row_to_bookmark(row) for row in rows]
+
+
+def append_bookmark_tags(session: Session, bookmark_id: str, tags: list[str]) -> bool:
+    """Append unique tags to a bookmark, preserving existing order."""
+    existing = get_bookmark(session, bookmark_id)
+    if existing is None:
+        return False
+    ordered = list(existing.tags)
+    for tag in tags:
+        if tag not in ordered:
+            ordered.append(tag)
+    existing.tags = ordered
+    upsert_bookmark(session, existing)
+    return True
+
+
 __all__ = [
     "get_session",
     "upsert_bookmark",
@@ -267,9 +300,11 @@ __all__ = [
     "search_bookmarks",
     "search_bookmarks_fts",
     "update_bookmark_tags",
+    "append_bookmark_tags",
     "delete_bookmark",
     "count_bookmarks",
     "count_dead_links",
+    "get_dead_bookmarks",
     "save_bookmarks",
     "load_bookmarks",
 ]

@@ -1,21 +1,30 @@
 {% if total_pages > 1 %}
+{% if dead_only %}
+{% set prev_link = '/bookmarks?dead_only=1&page=' ~ (page - 1) %}
+{% set next_link = '/bookmarks?dead_only=1&page=' ~ (page + 1) %}
+{% set page_link_prefix = '/bookmarks?dead_only=1&page=' %}
+{% else %}
+{% set prev_link = '/bookmarks?page=' ~ (page - 1) %}
+{% set next_link = '/bookmarks?page=' ~ (page + 1) %}
+{% set page_link_prefix = '/bookmarks?page=' %}
+{% endif %}
 <nav class="pagination" aria-label="Pagination">
     {% if page > 1 %}
-    <a href="/bookmarks?page={{ page - 1 }}">← Prev</a>
+    <a href="{{ prev_link }}">← Prev</a>
     {% endif %}
 
     {% for p in range(1, total_pages + 1) %}
         {% if p == page %}
         <span class="active">{{ p }}</span>
         {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
-        <a href="/bookmarks?page={{ p }}">{{ p }}</a>
+        <a href="{{ page_link_prefix }}{{ p }}">{{ p }}</a>
         {% elif p == page - 3 or p == page + 3 %}
         <span>...</span>
         {% endif %}
     {% endfor %}
 
     {% if page < total_pages %}
-    <a href="/bookmarks?page={{ page + 1 }}">Next →</a>
+    <a href="{{ next_link }}">Next →</a>
     {% endif %}
 </nav>
 {% endif %}

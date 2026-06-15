@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from cerebro.dashboard import app, get_db
-from cerebro.db import create_tables, upsert_bookmark
+from cerebro.db import create_tables, get_bookmark, upsert_bookmark
 from cerebro.models import Bookmark
 
 
@@ -151,3 +151,86 @@ def test_root_redirects_to_bookmarks(db_session, test_client):
     response = test_client.get("/", follow_redirects=False)
     assert response.status_code == 302
     assert response.headers["location"] == "/bookmarks"
+
+
+def test_edit_bookmark_form_renders(db_session, test_client):
+    """Test GET /bookmark/{id}/edit returns the edit form."""
+    bm = _sample_bookmark(id="edit-1", title="Edit Me")
+    upsert_bookmark(db_session, bm)
+
+    response = test_client.get("/bookmark/edit-1/edit")
+    assert response.status_code == 200
+    assert "Edit Bookmark" in response.text
+    assert "Edit Me" in response.text
+
+
+def test_edit_bookmark_updates_fields(db_session, test_client):
+    """Test POST /bookmark/{id}/edit updates title, tags, and description."""
+    bm = _sample_bookmark(id="edit-2", title="Old Title", tags=["old"], description="old desc")
+    upsert_bookmark(db_session, bm)
+
+    response = test_client.post(
+        "/bookmark/edit-2/edit",
+        params={"title": "New Title", "tags": "new, shiny", "description": "new desc"},
+    )
+    assert response.status_code == 200
+
+    updated = get_bookmark(db_session, "edit-2")
+    assert updated is not None
+    assert updated.title == "New Title"
+    assert updated.tags == ["new", "shiny"]
+    assert updated.description == "new desc"
+
+
+def test_edit_bookmark_not_found(db_session, test_client):
+    """Test editing a missing bookmark returns 404."""
+    response = test_client.get("/bookmark/missing-id/edit")
+    assert response.status_code == 404
+
+
+def test_delete_bookmark_redirects(db_session, test_client):
+    """Test DELETE /bookmark/{id} removes bookmark and redirects."""
+    bm = _sample_bookmark(id="delete-1", title="Delete Me")
+    upsert_bookmark(db_session, bm)
+
+    response = test_client.delete("/bookmark/delete-1", headers={"HX-Request": "true"})
+    assert response.status_code == 200
+    assert response.headers["HX-Redirect"] == "/bookmarks"
+
+    assert get_bookmark(db_session, "delete-1") is None
+
+
+def test_delete_bookmark_not_found(db_session, test_client):
+    """Test deleting a missing bookmark returns 404."""
+    response = test_client.delete("/bookmark/missing-id", headers={"HX-Request": "true"})
+    assert response.status_code == 404
+
+
+def test_bulk_tags_updates_multiple(db_session, test_client):
+    """Test POST /bookmarks/bulk-tags appends tags to selected bookmarks."""
+    bm1 = _sample_bookmark(id="bulk-1", title="Bulk 1", tags=["python"])
+    bm2 = _sample_bookmark(id="bulk-2", title="Bulk 2", tags=["rust"])
+    upsert_bookmark(db_session, bm1)
+    upsert_bookmark(db_session, bm2)
+
+    response = test_client.post(
+        "/bookmarks/bulk-tags",
+        data={"ids": ["bulk-1", "bulk-2"], "tags": "shared, important"},
+    )
+    assert response.status_code == 200
+
+    assert get_bookmark(db_session, "bulk-1").tags == ["python", "shared", "important"]
+    assert get_bookmark(db_session, "bulk-2").tags == ["rust", "shared", "important"]
+
+
+def test_dead_link_filter(db_session, test_client):
+    """Test /bookmarks?dead_only=1 filters dead links."""
+    live = _sample_bookmark(id="live-1", title="Live", is_dead_link=False)
+    dead = _sample_bookmark(id="dead-1", title="Dead", is_dead_link=True, http_status=404)
+    upsert_bookmark(db_session, live)
+    upsert_bookmark(db_session, dead)
+
+    response = test_client.get("/bookmarks?dead_only=1")
+    assert response.status_code == 200
+    assert "Dead" in response.text
+    assert "Live" not in response.text

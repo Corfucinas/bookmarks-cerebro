@@ -5,22 +5,48 @@
 {% block content %}
 <h1>📚 Bookmarks</h1>
 
-<div class="search-box">
-    <input
-        type="search"
-        class="search-input"
-        placeholder="Search bookmarks..."
-        hx-get="/search"
-        hx-trigger="keyup changed delay:300ms"
-        hx-target="#bookmark-results"
-        name="q"
-        id="search-input"
-    >
+<div class="grid" style="margin-bottom: 1rem;">
+    <div class="search-box" style="margin-bottom: 0;">
+        <input
+            type="search"
+            class="search-input"
+            placeholder="Search bookmarks..."
+            hx-get="/search"
+            hx-trigger="keyup changed delay:300ms"
+            hx-target="#bookmark-results"
+            name="q"
+            id="search-input"
+        >
+    </div>
+    <div style="text-align: right;">
+        {% if dead_only %}
+        <a href="/bookmarks" role="button" class="secondary">Show all</a>
+        {% else %}
+        <a href="/bookmarks?dead_only=1" role="button" class="secondary">⚠️ Dead links</a>
+        {% endif %}
+    </div>
 </div>
 
-<div id="bookmark-results">
-    {% include "partials/bookmark_rows.html" %}
-</div>
+<form
+    id="bulk-tags-form"
+    hx-post="/bookmarks/bulk-tags"
+    hx-target="#bookmark-results"
+    hx-swap="outerHTML"
+>
+    <div class="grid" style="margin-bottom: 1rem;">
+        <input
+            type="text"
+            name="tags"
+            placeholder="Comma-separated tags..."
+            required
+        >
+        <button type="submit">Add tags to selected</button>
+    </div>
+
+    <div id="bookmark-results">
+        {% include "partials/bookmark_rows.html" %}
+    </div>
+</form>
 
 {% include "partials/pagination.html" %}
 {% endblock %}

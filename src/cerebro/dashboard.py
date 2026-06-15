@@ -8,18 +8,20 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from src.cerebro.config import load_settings
 from src.cerebro.db import (
+    append_bookmark_tags,
     count_bookmarks,
     count_dead_links,
+    delete_bookmark,
     get_bookmark,
     get_bookmarks,
+    get_dead_bookmarks,
     get_session,
-    search_bookmarks,
     search_bookmarks_fts,
     upsert_bookmark,
 )
@@ -63,11 +65,16 @@ async def list_bookmarks(
     request: Request,
     db: DBSession,
     page: int = 1,
+    dead_only: bool = False,
 ) -> HTMLResponse:
-    """Render the bookmarks list page with pagination."""
+    """Render the bookmarks list page with pagination and optional dead-link filter."""
     offset = (page - 1) * PER_PAGE
-    bookmarks = get_bookmarks(db, limit=PER_PAGE, offset=offset)
-    total = count_bookmarks(db)
+    if dead_only:
+        bookmarks = get_dead_bookmarks(db, limit=PER_PAGE, offset=offset)
+        total = count_dead_links(db)
+    else:
+        bookmarks = get_bookmarks(db, limit=PER_PAGE, offset=offset)
+        total = count_bookmarks(db)
 
     total_pages = (total + PER_PAGE - 1) // PER_PAGE
 
@@ -79,6 +86,7 @@ async def list_bookmarks(
             "page": page,
             "total_pages": total_pages,
             "total": total,
+            "dead_only": dead_only,
         },
     )
 
@@ -91,8 +99,6 @@ async def search(
 ) -> HTMLResponse:
     """HTMX search endpoint returning bookmark rows fragment."""
     bookmarks = [] if not q else search_bookmarks_fts(db, q, limit=50)
-
-    bookmarks = [] if not q else search_bookmarks(db, q, limit=50)
 
     return templates.TemplateResponse(
         request=request,
@@ -117,6 +123,80 @@ async def bookmark_detail(
         name="bookmarks/detail.html",
         context={"bookmark": bookmark},
     )
+
+
+@app.get("/bookmark/{bookmark_id}/edit", response_class=HTMLResponse)
+async def edit_bookmark_form(
+    request: Request,
+    db: DBSession,
+    bookmark_id: str,
+) -> HTMLResponse:
+    """Render the bookmark edit form."""
+    bookmark = get_bookmark(db, bookmark_id)
+    if not bookmark:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    return templates.TemplateResponse(
+        request=request,
+        name="bookmarks/edit.html",
+        context={"bookmark": bookmark},
+    )
+
+
+@app.post("/bookmark/{bookmark_id}/edit")
+async def edit_bookmark(
+    db: DBSession,
+    bookmark_id: str,
+    title: str,
+    tags: str,
+    description: str = "",
+) -> Response:
+    """Update a bookmark's editable fields."""
+    bookmark = get_bookmark(db, bookmark_id)
+    if not bookmark:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    bookmark.title = title
+    bookmark.description = description
+    bookmark.tags = [t.strip() for t in tags.split(",") if t.strip()]
+    upsert_bookmark(db, bookmark)
+
+    return Response(
+        status_code=200,
+        headers={"HX-Redirect": f"/bookmark/{bookmark_id}"},
+    )
+
+
+@app.delete("/bookmark/{bookmark_id}")
+async def remove_bookmark(
+    request: Request,
+    db: DBSession,
+    bookmark_id: str,
+) -> Response:
+    """Delete a bookmark."""
+    removed = delete_bookmark(db, bookmark_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    if request.headers.get("HX-Request"):
+        return Response(status_code=200, headers={"HX-Redirect": "/bookmarks"})
+    return Response(status_code=302, headers={"Location": "/bookmarks"})
+
+
+@app.post("/bookmarks/bulk-tags")
+async def bulk_tags(
+    request: Request,
+    db: DBSession,
+) -> Response:
+    """Append tags to multiple bookmarks at once."""
+    form = await request.form()
+    ids = [str(value) for value in form.getlist("ids")]
+    tags = str(form.get("tags", ""))
+    new_tags = [t.strip() for t in tags.split(",") if t.strip()]
+    for bookmark_id in ids:
+        append_bookmark_tags(db, bookmark_id, new_tags)
+    return Response(status_code=200)
+    return Response(status_code=200)
 
 
 @app.get("/stats", response_class=HTMLResponse)
