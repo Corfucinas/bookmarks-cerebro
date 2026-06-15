@@ -13,7 +13,7 @@ from src.cerebro.classifier import classify_bookmarks
 from src.cerebro.config import load_settings
 from src.cerebro.crosslinks import find_crosslinks
 from src.cerebro.dashboard import run_dashboard
-from src.cerebro.db import count_bookmarks, count_dead_links, get_session
+from src.cerebro.db import count_bookmarks, count_dead_links, get_session, save_bookmarks
 from src.cerebro.dedup import detect_duplicates
 from src.cerebro.enricher import enrich_bookmarks
 from src.cerebro.exporter_csv import export_csv
@@ -240,7 +240,10 @@ def export_csv_cmd(input_json: Path, output: Path) -> None:
 @click.option("--fetch-live", is_flag=True, help="Fetch live page metadata (title, OG tags)")
 @click.option("--fetch-workers", type=int, default=20, help="Parallel fetch workers")
 @click.option("--fetch-timeout", type=int, default=15, help="Fetch timeout per page")
+@click.option("--to-db", is_flag=True, help="Persist enriched bookmarks to SQLite database")
+@click.pass_obj
 def pipeline(
+    obj: dict[str, Any],
     input_html: Path,
     taxonomy: Path,
     output_dir: Path,
@@ -249,8 +252,9 @@ def pipeline(
     fetch_live: bool,
     fetch_workers: int,
     fetch_timeout: int,
+    to_db: bool,
 ) -> None:
-    """Run full pipeline: parse → classify → dedup → [fetch] → enrich → export."""
+    """Run full pipeline: parse → classify → dedup → [fetch] → enrich → [export/db]."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     click.echo("📖 Parsing...")
@@ -269,6 +273,14 @@ def pipeline(
     click.echo("🏷️ Enriching...")
     bookmarks = enrich_bookmarks(bookmarks)
 
+    if to_db:
+        click.echo("💾 Persisting to SQLite...")
+        settings = obj["settings"]
+        with get_session(settings.db_url) as session:
+            count = save_bookmarks(session, bookmarks)
+            total = count_bookmarks(session)
+        click.echo(f"✓ Saved {count} bookmarks to database (total {total})")
+
     click.echo("📤 Exporting...")
     enriched_json = output_dir / "processed" / "enriched_bookmarks.json"
     enriched_json.parent.mkdir(parents=True, exist_ok=True)
@@ -284,6 +296,9 @@ def pipeline(
     click.echo(f"   JSON:  {enriched_json}")
     click.echo(f"   Vault: {vault_dir}")
     click.echo(f"   HTML:  {html_output}")
+    if to_db:
+        settings = obj["settings"]
+        click.echo(f"   DB:    {settings.database.path}")
 
 
 @cli.command()

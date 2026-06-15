@@ -74,3 +74,44 @@ port = 7777
         args, kwargs = mock_run.call_args
         assert kwargs.get("host") == "127.0.0.1"
         assert kwargs.get("port") == 6666
+
+
+def test_pipeline_persists_to_db(tmp_path: Path):
+    """cerebro pipeline --to-db persists enriched bookmarks to configured SQLite DB."""
+    repo_root = Path(__file__).resolve().parents[1]
+    sample_html = repo_root / ".github" / "testdata" / "sample.html"
+    taxonomy = repo_root / "taxonomy.yaml"
+    db_path = tmp_path / "cerebro.db"
+    output_dir = tmp_path / "output"
+    config = tmp_path / ".cerebro.toml"
+    config.write_text(f"""
+    [database]
+    path = "{db_path}"
+    """)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "--config",
+            str(config),
+            "pipeline",
+            str(sample_html),
+            "--taxonomy",
+            str(taxonomy),
+            "--output-dir",
+            str(output_dir),
+            "--no-ml",
+            "--to-db",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Saved" in result.output
+    assert "bookmarks to database" in result.output
+
+    from cerebro.config import load_settings
+    from cerebro.db import count_bookmarks, get_session
+
+    settings = load_settings(config)
+    with get_session(settings.db_url) as session:
+        assert count_bookmarks(session) > 0

@@ -234,3 +234,25 @@ def test_dead_link_filter(db_session, test_client):
     assert response.status_code == 200
     assert "Dead" in response.text
     assert "Live" not in response.text
+
+
+def test_metrics_endpoint(db_session, test_client):
+    """Test /metrics exposes Prometheus metrics."""
+    response = test_client.get("/metrics")
+    assert response.status_code == 200
+    text = response.text
+    assert "cerebro_http_requests_total" in text
+    assert "cerebro_http_request_duration_seconds" in text
+    assert response.headers["content-type"].startswith("text/plain")
+
+
+def test_health_endpoint(db_session, test_client):
+    """Test /health returns database connectivity status."""
+    bm = _sample_bookmark(id="health-1", title="Health Test")
+    upsert_bookmark(db_session, bm)
+
+    response = test_client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["bookmarks"] == 1

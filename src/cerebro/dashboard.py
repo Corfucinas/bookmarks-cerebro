@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
+import time
 from collections import Counter
-from collections.abc import Generator
+from collections.abc import Awaitable, Callable, Generator
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.templating import Jinja2Templates
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    REGISTRY,
+    Histogram,
+    generate_latest,
+)
+from prometheus_client import (
+    Counter as PrometheusCounter,
+)
 from sqlalchemy.orm import Session
 
 from src.cerebro.config import load_settings
@@ -38,6 +48,31 @@ app = FastAPI(title="Bookmarks Cerebro Dashboard", version="1.0.0")
 PER_PAGE = 50
 
 
+def _get_or_create_metric(metric_cls: type[Any], name: str, *args: Any, **kwargs: Any) -> Any:
+    """Return an existing Prometheus collector or create a new one.
+
+    Re-importing the module during tests would otherwise raise a duplicate
+    registration error.
+    """
+    try:
+        return metric_cls(name, *args, **kwargs)
+    except ValueError:
+        return REGISTRY._names_to_collectors[name]
+
+
+REQUEST_COUNT = _get_or_create_metric(
+    PrometheusCounter,
+    "cerebro_http_requests_total",
+    "Total HTTP requests",
+    ["method", "path"],
+)
+REQUEST_LATENCY = _get_or_create_metric(
+    Histogram,
+    "cerebro_http_request_duration_seconds",
+    "HTTP request latency",
+)
+
+
 def get_db() -> Generator[Session, None, None]:
     """Dependency that yields a database session."""
     settings = load_settings()
@@ -46,6 +81,21 @@ def get_db() -> Generator[Session, None, None]:
 
 
 DBSession = Annotated[Session, Depends(get_db)]
+
+
+@app.middleware("http")
+async def metrics_middleware(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    """Record request counts and latencies for Prometheus."""
+    path = request.url.path
+    method = request.method
+    start = time.time()
+    response = await call_next(request)
+    REQUEST_LATENCY.observe(time.time() - start)
+    REQUEST_COUNT.labels(method=method, path=path).inc()
+    return response
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -196,7 +246,6 @@ async def bulk_tags(
     for bookmark_id in ids:
         append_bookmark_tags(db, bookmark_id, new_tags)
     return Response(status_code=200)
-    return Response(status_code=200)
 
 
 @app.get("/stats", response_class=HTMLResponse)
@@ -224,6 +273,32 @@ async def stats(request: Request, db: DBSession) -> HTMLResponse:
             "top_categories": top_categories,
         },
     )
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+async def metrics() -> PlainTextResponse:
+    """Expose Prometheus metrics."""
+    data = generate_latest()
+    return PlainTextResponse(
+        content=data.decode("utf-8"),
+        media_type=CONTENT_TYPE_LATEST,
+    )
+
+
+@app.get("/health", response_class=JSONResponse)
+async def health(db: DBSession) -> JSONResponse:
+    """Health check endpoint verifying database connectivity."""
+    try:
+        total = count_bookmarks(db)
+        return JSONResponse(
+            content={"status": "ok", "bookmarks": total},
+            status_code=200,
+        )
+    except Exception as exc:
+        return JSONResponse(
+            content={"status": "error", "detail": str(exc)},
+            status_code=503,
+        )
 
 
 @app.post("/api/ingest", response_class=JSONResponse)
