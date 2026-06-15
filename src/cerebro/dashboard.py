@@ -20,6 +20,7 @@ from src.cerebro.db import (
     get_bookmarks,
     get_session,
     search_bookmarks,
+    search_bookmarks_fts,
     upsert_bookmark,
 )
 from src.cerebro.models import Bookmark
@@ -89,6 +90,8 @@ async def search(
     q: str = "",
 ) -> HTMLResponse:
     """HTMX search endpoint returning bookmark rows fragment."""
+    bookmarks = [] if not q else search_bookmarks_fts(db, q, limit=50)
+
     bookmarks = [] if not q else search_bookmarks(db, q, limit=50)
 
     return templates.TemplateResponse(

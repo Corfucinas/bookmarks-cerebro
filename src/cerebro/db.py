@@ -7,6 +7,7 @@ around a context-managed session and simple CRUD helpers that operate on the
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -18,6 +19,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.cerebro.db_schema import audit_log_table, bookmarks_table, create_tables, tags_table
 from src.cerebro.models import Bookmark
+
+logger = logging.getLogger("cerebro")
 
 
 @contextmanager
@@ -179,6 +182,49 @@ def search_bookmarks(session: Session, query: str, *, limit: int = 50) -> list[B
     return [_row_to_bookmark(row) for row in rows]
 
 
+def search_bookmarks_fts(session: Session, query: str, *, limit: int = 50) -> list[Bookmark]:
+    """Full-text search via SQLite FTS5, ranked by relevance.
+
+    Falls back to ILIKE search if FTS5 is unavailable or the query is empty.
+    """
+    clean_query = query.strip()
+    if not clean_query:
+        return []
+    try:
+        # Build FTS5 table reference manually since it's a virtual table.
+        fts = sa.Table(
+            "fts_bookmarks",
+            sa.MetaData(),
+            sa.Column("rowid", sa.Integer),
+            sa.Column("title", sa.String),
+            sa.Column("description", sa.String),
+            sa.Column("tags", sa.String),
+        )
+        match_clause = sa.text("fts_bookmarks MATCH :q").bindparams(q=clean_query)
+        stmt = (
+            sa.select(bookmarks_table)
+            .join(fts, bookmarks_table.c.rowid == fts.c.rowid)
+            .where(match_clause)
+            .order_by(sa.text("rank"))
+            .limit(limit)
+        )
+        rows = session.execute(stmt).all()
+        return [_row_to_bookmark(row) for row in rows]
+    except Exception as exc:
+        logger.warning(f"FTS5 search failed ({exc}); falling back to ILIKE")
+        return search_bookmarks(session, clean_query, limit=limit)
+
+
+def update_bookmark_tags(session: Session, bookmark_id: str, tags: list[str]) -> bool:
+    """Replace tags for a bookmark. Returns True if the bookmark exists."""
+    existing = get_bookmark(session, bookmark_id)
+    if existing is None:
+        return False
+    existing.tags = list(tags)
+    upsert_bookmark(session, existing)
+    return True
+
+
 def delete_bookmark(session: Session, bookmark_id: str) -> bool:
     """Delete a bookmark by ID. Returns True if a row was removed."""
     result = session.execute(
@@ -219,6 +265,8 @@ __all__ = [
     "get_bookmark",
     "get_bookmarks",
     "search_bookmarks",
+    "search_bookmarks_fts",
+    "update_bookmark_tags",
     "delete_bookmark",
     "count_bookmarks",
     "count_dead_links",

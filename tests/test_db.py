@@ -16,6 +16,7 @@ from cerebro.db import (
     get_session,
     save_bookmarks,
     search_bookmarks,
+    search_bookmarks_fts,
     upsert_bookmark,
 )
 from cerebro.models import Bookmark
@@ -114,3 +115,23 @@ def test_full_dict_roundtrip(db_session):
     assert loaded.fetched_metadata == {"og:title": "OG Title"}
     assert loaded.duplicate_group_id == "dup-1"
     assert loaded.related_ids == ["full-2"]
+
+
+def test_search_bookmarks_fts(db_session):
+    save_bookmarks(
+        db_session,
+        [
+            _sample_bookmark(
+                id="ftsa", title="Python machine learning", description="learn ML with python"
+            ),
+            _sample_bookmark(
+                id="ftsb", title="Rust systems book", description="programming in Rust"
+            ),
+        ],
+    )
+    results = search_bookmarks_fts(db_session, "machine learning")
+    assert len(results) == 1
+    assert results[0].id == "ftsa"
+    multi = search_bookmarks_fts(db_session, "rust programming")
+    assert len(multi) == 1
+    assert multi[0].id == "ftsb"
