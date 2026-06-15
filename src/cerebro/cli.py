@@ -350,11 +350,16 @@ def db_status(obj: dict[str, Any]) -> None:
 
 
 @cli.command()
-@click.option("--host", type=str, default="127.0.0.1", help="Server host")
-@click.option("--port", type=int, default=8765, help="Server port")
-def serve(host: str, port: int) -> None:
+@click.option("--host", type=str, default=None, help="Server host")
+@click.option("--port", type=int, default=None, help="Server port")
+@click.pass_obj
+def serve(obj: dict[str, Any], host: str | None, port: int | None) -> None:
     """Start local HTTP server for browser-extension ingestion."""
-    run_server(host, port)
+    settings = obj["settings"]
+    run_server(
+        host=host or settings.server.host,
+        port=port or settings.server.port,
+    )
 
 
 @cli.command()

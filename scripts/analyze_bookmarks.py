@@ -74,9 +74,8 @@ class BookmarkParser(HTMLParser):
             self.a_attrs = {}
             self.a_text = ""
 
-        elif tag_lower == "dl":
-            if self.folder_stack:
-                self.folder_stack.pop()
+        elif tag_lower == "dl" and self.folder_stack:
+            self.folder_stack.pop()
 
     def handle_data(self, data):
         if self.in_h3:
@@ -94,7 +93,7 @@ def main():
         print(f"Error: bookmark file not found at {input_path}", file=sys.stderr)
         sys.exit(1)
 
-    with open(input_path, "r", encoding="utf-8") as fh:
+    with open(input_path, encoding="utf-8") as fh:
         html_content = fh.read()
 
     parser = BookmarkParser()

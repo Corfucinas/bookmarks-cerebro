@@ -74,3 +74,14 @@ jobs:
           test -f /tmp/cerebro-test/processed/enriched_bookmarks.json
           test -d /tmp/cerebro-test/vault
           echo "Pipeline outputs verified"
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Docker image
+        run: docker build -t cerebro .
+      - name: Verify image metadata
+        run: docker image inspect cerebro --format='{{.Size}}' | xargs -I {} test {} -gt 0
