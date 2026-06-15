@@ -6,8 +6,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from cerebro.cli import cli
 from click.testing import CliRunner
+
+from cerebro.cli import cli
 
 
 def test_serve_uses_config_host_port(tmp_path: Path):

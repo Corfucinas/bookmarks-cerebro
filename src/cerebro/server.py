@@ -6,6 +6,7 @@ GET  /api/health  → server health check.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -88,7 +89,12 @@ class CerebroHandler(BaseHTTPRequestHandler):
             self._json_response(400, {"error": "Empty body"})
             return
         if content_length > MAX_CONTENT_LENGTH_BYTES:
+            # Discard the oversized body before responding so the client
+            # receives a clean 413 instead of a broken-pipe error.
+            with contextlib.suppress(ConnectionResetError, OSError):
+                self.rfile.read(content_length)
             self._json_response(413, {"error": "Payload too large"})
+            return
             return
 
         raw = self.rfile.read(content_length)

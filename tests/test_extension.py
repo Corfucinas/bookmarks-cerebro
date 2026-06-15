@@ -74,9 +74,9 @@ def test_exponential_backoff_algorithm():
 
     for attempt, expected_delay in enumerate(expected_delays[:max_attempts]):
         delay = calculate_backoff_delay(attempt)
-        assert (
-            delay == expected_delay
-        ), f"Attempt {attempt}: expected {expected_delay}ms, got {delay}ms"
+        assert delay == expected_delay, (
+            f"Attempt {attempt}: expected {expected_delay}ms, got {delay}ms"
+        )
 
     # Test: max delay cap
     large_attempt = 10
@@ -144,6 +144,6 @@ def test_settings_structure():
 
     for field, field_type in expected_settings.items():
         assert field in sample_settings, f"Settings missing field: {field}"
-        assert isinstance(
-            sample_settings[field], field_type
-        ), f"Field {field} should be {field_type}"
+        assert isinstance(sample_settings[field], field_type), (
+            f"Field {field} should be {field_type}"
+        )

@@ -85,3 +85,17 @@ jobs:
         run: docker build -t cerebro .
       - name: Verify image metadata
         run: docker image inspect cerebro --format='{{.Size}}' | xargs -I {} test {} -gt 0
+
+  extension-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install extension dependencies and test
+        run: |
+          cd browser-extension
+          npm ci
+          npm test

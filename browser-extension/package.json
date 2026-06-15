@@ -1,0 +1,15 @@
+{
+  "name": "bookmarks-cerebro-extension",
+  "version": "0.2.0",
+  "description": "Bookmarks Cerebro browser extension test harness",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0",
+    "vitest": "^1.6.0"
+  }
+}
