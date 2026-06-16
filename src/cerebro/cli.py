@@ -510,13 +510,11 @@ def crosslinks(input_json: Path, output: Path, export_format: str) -> None:
             for nid, label in nodes.items():
                 f.write(f'      <node id="{nid}" label="{label}" />\n')
             f.write("    </nodes>\n")
-            edges = []
+            total_edges = sum(len(bm.related_ids) for bm in bookmarks)
+            f.write(f'    <edges count="{total_edges}">\n')
             for bm in bookmarks:
                 for rid in bm.related_ids:
-                    edges.append((bm.id, rid))
-            f.write(f'    <edges count="{len(edges)}">\n')
-            for src, tgt in edges:
-                f.write(f'      <edge source="{src}" target="{tgt}" />\n')
+                    f.write(f'      <edge source="{bm.id}" target="{rid}" />\n')
             f.write("    </edges>\n")
             f.write("  </graph>\n")
             f.write("</gexf>\n")

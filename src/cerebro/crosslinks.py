@@ -66,13 +66,14 @@ def find_crosslinks(bookmarks: list[Bookmark]) -> list[Bookmark]:
                 related[bm_id].update(i for i in ids if i != bm_id)
 
     # Limit to top 10 related per bookmark by score
+    bm_by_id = {bm.id: bm for bm in bookmarks}
     for bm in bookmarks:
         rel_ids = related.get(bm.id, set())
         # Score by number of shared tags
         scores: dict[str, int] = {}
         my_tags = set(bm.tags)
         for rid in rel_ids:
-            other = next((b for b in bookmarks if b.id == rid), None)
+            other = bm_by_id.get(rid)
             if other:
                 scores[rid] = len(my_tags & set(other.tags))
         top = sorted(scores, key=lambda k: scores[k], reverse=True)[:10]

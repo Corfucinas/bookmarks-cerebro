@@ -296,15 +296,17 @@ def enrich_bookmark(bookmark: Bookmark) -> Bookmark:
 
 def enrich_bookmarks(bookmarks: list[Bookmark]) -> list[Bookmark]:
     """Enrich all bookmarks in place."""
-    logger.info(f"Enriching {len(bookmarks)} bookmarks...")
+    total = len(bookmarks)
+    logger.info(f"Enriching {total} bookmarks...")
     for i, bm in enumerate(bookmarks):
         enrich_bookmark(bm)
         if (i + 1) % 500 == 0:
-            logger.info(f"Enriched {i + 1}/{len(bookmarks)}")
+            logger.info(f"Enriched {i + 1}/{total}")
 
     tag_counts = [len(bm.tags) for bm in bookmarks]
-    avg_tags = sum(tag_counts) / len(tag_counts) if tag_counts else 0
-    median_tags = sorted(tag_counts)[len(tag_counts) // 2] if tag_counts else 0
+    n = len(tag_counts)
+    avg_tags = sum(tag_counts) / n if tag_counts else 0
+    median_tags = sorted(tag_counts)[n // 2] if tag_counts else 0
     logger.info(
         f"Tag stats: avg={avg_tags:.1f}, median={median_tags}, max={max(tag_counts) if tag_counts else 0}"
     )

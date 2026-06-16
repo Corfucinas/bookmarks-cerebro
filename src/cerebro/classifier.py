@@ -631,6 +631,9 @@ class BookmarkClassifier:
         self.taxonomy = load_taxonomy(taxonomy_path)
         self.leaves = self.taxonomy.all_leaves()
         self.leaf_names = ["/".join(leaf.breadcrumb[1:]) for leaf in self.leaves]
+        self._leaf_name_to_index: dict[str, int] = {
+            name: idx for idx, name in enumerate(self.leaf_names)
+        }
         self.ml_classifier: KNeighborsClassifier | None = None
         self.vectorizer: TfidfVectorizer | None = None
         self._ml_ready = False
@@ -774,11 +777,9 @@ class BookmarkClassifier:
                 text = f"{bm.title} {bm.url}"
                 classified.append(text)
                 leaf_name = "/".join(cat)
-                try:
-                    idx = self.leaf_names.index(leaf_name)
+                idx = self._leaf_name_to_index.get(leaf_name)
+                if idx is not None:
                     labels.append(idx)
-                except ValueError:
-                    pass
 
         if len(classified) < 100:
             logger.warning(f"Not enough training data: {len(classified)} samples")

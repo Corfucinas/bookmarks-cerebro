@@ -284,8 +284,10 @@ def append_bookmark_tags(session: Session, bookmark_id: str, tags: list[str]) ->
     if existing is None:
         return False
     ordered = list(existing.tags)
+    seen = set(existing.tags)
     for tag in tags:
-        if tag not in ordered:
+        if tag not in seen:
+            seen.add(tag)
             ordered.append(tag)
     existing.tags = ordered
     upsert_bookmark(session, existing)

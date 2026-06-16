@@ -135,6 +135,7 @@ def export_obsidian(
             by_domain.setdefault(bm.domain, []).append(bm)
 
     count = 0
+    total = len(bookmarks)
     for bm in bookmarks:
         cat_dir = vault_dir / "/".join(bm.category_breadcrumbs)
         ensure_dir(cat_dir)
@@ -162,7 +163,7 @@ def export_obsidian(
             for r in bookmarks:
                 if r.id != bm.id and r.id not in related_ids and r.add_date_epoch:
                     diff = abs(int(r.add_date_epoch) - bm_epoch)
-                    if diff < 1800 and len(related) < max_related * 3:
+                    if diff < 1800 and len(related) < max_related:
                         related.append((r, "Bookmarked together"))
                         related_ids.add(r.id)
         related = related[:max_related]
@@ -185,7 +186,7 @@ def export_obsidian(
         count += 1
 
         if count % 500 == 0:
-            logger.info(f"Exported {count}/{len(bookmarks)} markdown files")
+            logger.info(f"Exported {count}/{total} markdown files")
 
     logger.info(f"Exported {count} markdown files to {vault_dir}")
     return vault_dir
