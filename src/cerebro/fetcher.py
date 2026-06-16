@@ -44,9 +44,9 @@ def _create_ssl_context() -> ssl.SSLContext:
     return context
 
 
-def _fetch_head(url: str, timeout: int) -> Any:
-    """Perform HEAD request. Returns response or None on failure."""
-    req = urllib.request.Request(url, method="HEAD")
+def _fetch(method: str, url: str, timeout: int) -> Any:
+    """Perform HTTP request (HEAD or GET). Returns response, HTTPError, or None on failure."""
+    req = urllib.request.Request(url, method=method)
     req.add_header(
         "User-Agent",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -55,26 +55,19 @@ def _fetch_head(url: str, timeout: int) -> Any:
     try:
         return urllib.request.urlopen(req, timeout=timeout, context=_create_ssl_context())
     except urllib.error.HTTPError as e:
-        # HTTPError is a subclass of addinfourl; return it so caller sees status
         return e
     except Exception:
         return None
+
+
+def _fetch_head(url: str, timeout: int) -> Any:
+    """Perform HEAD request. Returns response or None on failure."""
+    return _fetch("HEAD", url, timeout)
 
 
 def _fetch_get(url: str, timeout: int) -> Any:
     """Perform GET request."""
-    req = urllib.request.Request(url, method="GET")
-    req.add_header(
-        "User-Agent",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    )
-    req.add_header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-    try:
-        return urllib.request.urlopen(req, timeout=timeout, context=_create_ssl_context())
-    except urllib.error.HTTPError as e:
-        return e
-    except Exception:
-        return None
+    return _fetch("GET", url, timeout)
 
 
 def _read_body(resp: Any) -> str:
@@ -200,10 +193,6 @@ def _fetch_page(url: str, timeout: int = DEFAULT_TIMEOUT) -> dict[str, Any]:
 
         canonical = soup.find("link", attrs={"rel": "canonical"})
         if isinstance(canonical, Tag) and canonical.attrs.get("href"):
-            result["canonical_url"] = canonical.attrs["href"]
-        else:
-            result["canonical_url"] = url
-        if canonical and canonical.attrs.get("href"):
             result["canonical_url"] = canonical.attrs["href"]
         else:
             result["canonical_url"] = url
