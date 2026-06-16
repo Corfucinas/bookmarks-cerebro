@@ -131,7 +131,7 @@ def _mark_groups(
             gid = f"{mode}_{group_id:04d}"
             group_id += 1
             canonical = max(group, key=lambda bm: bm.confidence_score)
-            all_urls = list({bm.url for bm in group})
+            all_urls = {bm.url for bm in group}
             for bm in group:
                 bm.duplicate_group_id = gid
                 bm.duplicate_urls = [u for u in all_urls if u != bm.url]

@@ -125,31 +125,6 @@ def _ensure_fts5(engine: sa.engine.Engine) -> None:
         END
         """,
     ]
-    triggers = [
-        """
-        CREATE TRIGGER IF NOT EXISTS fts_bookmarks_insert
-        AFTER INSERT ON bookmarks BEGIN
-            INSERT INTO fts_bookmarks(rowid, title, description, tags)
-            VALUES (new.rowid, new.title, new.description, new.tags);
-        END
-        """,
-        """
-        CREATE TRIGGER IF NOT EXISTS fts_bookmarks_delete
-        AFTER DELETE ON bookmarks BEGIN
-            INSERT INTO fts_bookmarks(fts_bookmarks, rowid, title, description, tags)
-            VALUES ('delete', old.rowid, old.title, old.description, old.tags);
-        END
-        """,
-        """
-        CREATE TRIGGER IF NOT EXISTS fts_bookmarks_update
-        AFTER UPDATE ON bookmarks BEGIN
-            INSERT INTO fts_bookmarks(fts_bookmarks, rowid, title, description, tags)
-            VALUES ('delete', old.rowid, old.title, old.description, old.tags);
-            INSERT INTO fts_bookmarks(rowid, title, description, tags)
-            VALUES (new.rowid, new.title, new.description, new.tags);
-        END
-        """,
-    ]
     try:
         with engine.begin() as conn:
             conn.execute(sa.text(create_sql))

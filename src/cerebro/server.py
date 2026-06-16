@@ -95,7 +95,6 @@ class CerebroHandler(BaseHTTPRequestHandler):
                 self.rfile.read(content_length)
             self._json_response(413, {"error": "Payload too large"})
             return
-            return
 
         raw = self.rfile.read(content_length)
         try:

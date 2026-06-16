@@ -79,7 +79,7 @@ def _tree_to_html(tree: dict[str, Any], indent: int = 1) -> str:
             if "__bookmarks__" in value:
                 bm_lines = [_build_link_html(bm, indent + 1) for bm in value["__bookmarks__"]]
                 if children_html:
-                    children_html = "\n".join(bm_lines + [children_html])
+                    children_html = "\n".join([*bm_lines, children_html])
                 else:
                     children_html = "\n".join(bm_lines)
             lines.append(_build_folder_html(key, children_html, indent))
@@ -96,7 +96,7 @@ def export_html(bookmarks: list[Bookmark], output_path: Path | str) -> Path:
 
     # Add root-level bookmarks
     if "__bookmarks__" in tree:
-        root_bms = "\n".join([_build_link_html(bm, 1) for bm in tree["__bookmarks__"]])
+        root_bms = "\n".join(_build_link_html(bm, 1) for bm in tree["__bookmarks__"])
         body = root_bms + "\n" + body if body else root_bms
 
     html_content = HTML_TEMPLATE.format(body=body)

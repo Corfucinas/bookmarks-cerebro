@@ -757,7 +757,6 @@ class BookmarkClassifier:
             x_matrix = self.vectorizer.transform([text])
             proba = self.ml_classifier.predict_proba(x_matrix)[0]
             pred_idx = np.argmax(proba)
-            pred_idx = np.argmax(proba)
             confidence = float(proba[pred_idx])
             leaf = self.leaves[pred_idx]
             return leaf.breadcrumb[1:], confidence

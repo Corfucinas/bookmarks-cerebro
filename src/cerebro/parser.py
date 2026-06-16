@@ -22,28 +22,28 @@ class BookmarkHTMLParser(HTMLParser):
         self._current_a_attrs: dict[str, str | None] = {}
         self._current_h3_attrs: dict[str, str | None] = {}
         self._in_h3 = False
-        self._current_h3_text = ""
+        self._current_h3_text: list[str] = []
         self._in_a = False
-        self._current_a_text = ""
+        self._current_a_text: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attr_dict = dict(attrs)
         if tag == "h3":
             self._in_h3 = True
-            self._current_h3_text = ""
+            self._current_h3_text = []
             self._current_h3_attrs = attr_dict
         elif tag == "a":
             self._in_a = True
-            self._current_a_text = ""
+            self._current_a_text = []
             self._current_a_attrs = attr_dict
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "h3":
             self._in_h3 = False
-            folder_name = self._current_h3_text.strip()
+            folder_name = "".join(self._current_h3_text).strip()
             if folder_name:
                 self.folder_stack.append(folder_name)
-            self._current_h3_text = ""
+            self._current_h3_text = []
         elif tag == "dl":
             if self.folder_stack:
                 self.folder_stack.pop()
@@ -53,16 +53,16 @@ class BookmarkHTMLParser(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         if self._in_h3:
-            self._current_h3_text += data
+            self._current_h3_text.append(data)
         elif self._in_a:
-            self._current_a_text += data
+            self._current_a_text.append(data)
 
     def _flush_bookmark(self) -> None:
         href = self._current_a_attrs.get("href")
         if not href:
             return
         # Title from A tag text; fallback to title attribute; fallback to URL
-        title = self._current_a_text.strip() or self._current_a_attrs.get("title") or ""
+        title = "".join(self._current_a_text).strip() or self._current_a_attrs.get("title") or ""
         if not title:
             title = href
         add_date = self._current_a_attrs.get("add_date")
@@ -83,7 +83,7 @@ class BookmarkHTMLParser(HTMLParser):
         )
         self.bookmarks.append(bookmark)
         self._current_a_attrs = {}
-        self._current_a_text = ""
+        self._current_a_text = []
 
     def get_bookmarks(self) -> list[Bookmark]:
         return self.bookmarks
