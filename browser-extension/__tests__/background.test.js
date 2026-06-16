@@ -29,9 +29,7 @@ import {
 
 import { chromeMockController, resetChromeMock, } from "../vitest.setup.js";
 
-import { chromeMockController, resetChromeMock, } from "../vitest.setup.js";
-
-const { storage, listeners, getBadgeText, } = chromeMockController;
+const { storage, listeners, getBadgeText, getBadgeColor, } = chromeMockController;
 
 beforeEach(() => {
   resetChromeMock();
@@ -191,5 +189,202 @@ describe("message hub", () => {
     const sendResponse = vi.fn();
     await messageListener({ action: "getQueueStats", }, {}, sendResponse,);
     expect(sendResponse,).toHaveBeenCalledWith({ pending: 0, failed: 0, },);
+  });
+});
+
+// ------------------------------------------------------------------
+// Wave 1 regression tests — pin current behavior before slop removal
+// ------------------------------------------------------------------
+
+describe("ingestWithFallback", () => {
+  beforeEach(() => {
+    resetChromeMock();
+    registerBrowserListeners();
+  },);
+
+  it("enqueues bookmark when ingest fails (fallback path)", async () => {
+    global.fetch = vi.fn(() => Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({},), },));
+
+    const messageListener = listeners.message[0];
+    const sendResponse = vi.fn();
+
+    await messageListener(
+      { action: "ingest", payload: { url: "https://fail.com", title: "Fail", }, },
+      {},
+      sendResponse,
+    );
+
+    // Verify response indicates failure
+    expect(sendResponse,).toHaveBeenCalledWith(
+      expect.objectContaining({ success: false, duplicate: false, },),
+    );
+
+    // Verify bookmark was enqueued as fallback
+    const queue = await getQueue();
+    expect(queue,).toHaveLength(1,);
+    expect(queue[0].url,).toBe("https://fail.com",);
+  });
+
+  it("does NOT enqueue when ingest succeeds", async () => {
+    global.fetch = vi.fn(() =>
+      Promise.resolve({ ok: true, status: 201, json: () => Promise.resolve({ id: "abc", status: "created", },), },)
+    );
+
+    const messageListener = listeners.message[0];
+    const sendResponse = vi.fn();
+
+    await messageListener(
+      { action: "ingest", payload: { url: "https://ok.com", title: "OK", }, },
+      {},
+      sendResponse,
+    );
+
+    // Verify response indicates success
+    expect(sendResponse,).toHaveBeenCalledWith(
+      expect.objectContaining({ success: true, duplicate: false, },),
+    );
+
+    // Verify no fallback enqueue
+    const queue = await getQueue();
+    expect(queue,).toHaveLength(0,);
+  });
+});
+
+describe("flashBadge on duplicate", () => {
+  beforeEach(() => {
+    resetChromeMock();
+    registerBrowserListeners();
+  },);
+
+  it("sets DUP badge text/color when duplicate detected", async () => {
+    // Pre-mark as duplicate
+    await markAsBookmarked("https://example.com", "Example",);
+
+    // Mock fetch to succeed (so ingest doesn't fail and enqueue)
+    global.fetch = vi.fn(() =>
+      Promise.resolve({ ok: true, status: 201, json: () => Promise.resolve({ id: "abc", status: "created", },), },)
+    );
+
+    // Fire context menu click listener for "cerebro-page"
+    const clickListener = listeners.click[0];
+    clickListener(
+      { menuItemId: "cerebro-page", },
+      { url: "https://example.com", title: "Example", id: 1, },
+    );
+
+    // Yield to microtask queue so handleContextMenuClick's await chain completes
+    await new Promise((r,) => setTimeout(r, 10,));
+
+    // Verify chrome.action.setBadgeText was called with "DUP"
+    expect(chrome.action.setBadgeText,).toHaveBeenCalledWith({ text: "DUP", },);
+    expect(chrome.action.setBadgeBackgroundColor,).toHaveBeenCalledWith({ color: "#ca8a04", },);
+  });
+});
+
+describe("silent error swallowing", () => {
+  beforeEach(() => {
+    resetChromeMock();
+    registerBrowserListeners();
+  },);
+
+  it("currently swallows errors in alarm drainQueue handler", async () => {
+    const originalGet = chrome.storage.local.get;
+    try {
+      chrome.storage.local.get = vi.fn(() => Promise.reject(new Error("storage failure",),));
+
+      const alarmListener = listeners.alarm[0];
+
+      // The wrapper does NOT return a promise, and .catch(() => {}) swallows the async error.
+      // Verify it does not throw synchronously.
+      expect(() => alarmListener({ name: "drainQueue", },)).not.toThrow();
+
+      // Let pending microtasks settle (the rejected promise is caught by .catch(() => {}))
+      await new Promise((r,) => setTimeout(r, 0,));
+    } finally {
+      // ALWAYS restore original mock to avoid poisoning subsequent tests
+      chrome.storage.local.get = originalGet;
+    }
+  });
+});
+
+describe("drainQueue ordering", () => {
+  beforeEach(() => {
+    resetChromeMock();
+  },);
+
+  it("processes queued items in FIFO order", async () => {
+    const fetchCalls = [];
+    global.fetch = vi.fn((url, options,) => {
+      const body = JSON.parse(options.body,);
+      fetchCalls.push(body.url,);
+      return Promise.resolve({
+        ok: true,
+        status: 201,
+        json: () => Promise.resolve({ id: "x", status: "created", },),
+      },);
+    },);
+
+    // Enqueue 3 items in order
+    await enqueueBookmark({ url: "https://first.com", title: "First", },);
+    await enqueueBookmark({ url: "https://second.com", title: "Second", },);
+    await enqueueBookmark({ url: "https://third.com", title: "Third", },);
+
+    await drainQueue();
+
+    // All items should be processed and removed
+    expect(await getQueue(),).toHaveLength(0,);
+
+    // Fetch should have been called 3 times in FIFO order
+    expect(fetchCalls,).toHaveLength(3,);
+    expect(fetchCalls,).toEqual([
+      "https://first.com",
+      "https://second.com",
+      "https://third.com",
+    ],);
+  });
+});
+
+describe("handleMessage ingest", () => {
+  beforeEach(() => {
+    resetChromeMock();
+    registerBrowserListeners();
+  },);
+
+  it("returns success:true with duplicate flag on successful ingest", async () => {
+    global.fetch = vi.fn(() =>
+      Promise.resolve({ ok: true, status: 201, json: () => Promise.resolve({ id: "abc123", status: "created", },), },)
+    );
+
+    const messageListener = listeners.message[0];
+    const sendResponse = vi.fn();
+
+    await messageListener(
+      { action: "ingest", payload: { url: "https://new.com", title: "New", }, },
+      {},
+      sendResponse,
+    );
+
+    expect(sendResponse,).toHaveBeenCalledWith({
+      success: true,
+      data: { id: "abc123", status: "created", },
+      duplicate: false,
+    },);
+  });
+
+  it("returns success:false with duplicate flag on failed ingest", async () => {
+    global.fetch = vi.fn(() => Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({},), },));
+
+    const messageListener = listeners.message[0];
+    const sendResponse = vi.fn();
+
+    await messageListener(
+      { action: "ingest", payload: { url: "https://err.com", title: "Err", }, },
+      {},
+      sendResponse,
+    );
+
+    expect(sendResponse,).toHaveBeenCalledWith(
+      expect.objectContaining({ success: false, duplicate: false, },),
+    );
   });
 });

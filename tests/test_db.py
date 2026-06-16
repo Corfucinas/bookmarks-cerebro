@@ -8,6 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from cerebro.db import (
+    append_bookmark_tags,
     count_bookmarks,
     count_dead_links,
     delete_bookmark,
@@ -17,6 +18,7 @@ from cerebro.db import (
     save_bookmarks,
     search_bookmarks,
     search_bookmarks_fts,
+    update_bookmark_tags,
     upsert_bookmark,
 )
 from cerebro.models import Bookmark
@@ -135,3 +137,63 @@ def test_search_bookmarks_fts(db_session):
     multi = search_bookmarks_fts(db_session, "rust programming")
     assert len(multi) == 1
     assert multi[0].id == "ftsb"
+
+
+def test_append_bookmark_tags_adds_unique_preserves_order(db_session):
+    """append_bookmark_tags adds new tags without duplicates and preserves existing order."""
+    bm = _sample_bookmark(id="tag-1", tags=["python", "ml"])
+    upsert_bookmark(db_session, bm)
+
+    # Append one new tag and one duplicate
+    result = append_bookmark_tags(db_session, "tag-1", ["rust", "python"])
+    assert result is True
+
+    loaded = get_bookmark(db_session, "tag-1")
+    assert loaded is not None
+    # Order preserved: original tags first, then new unique tags
+    assert loaded.tags == ["python", "ml", "rust"]
+
+
+def test_update_bookmark_tags_replaces_entirely(db_session):
+    """update_bookmark_tags replaces all tags, not appends."""
+    bm = _sample_bookmark(id="tag-2", tags=["python", "ml", "rust"])
+    upsert_bookmark(db_session, bm)
+
+    result = update_bookmark_tags(db_session, "tag-2", ["go", "zig"])
+    assert result is True
+
+    loaded = get_bookmark(db_session, "tag-2")
+    assert loaded is not None
+    # Old tags gone, only new tags remain
+    assert loaded.tags == ["go", "zig"]
+
+
+def test_append_bookmark_tags_case_sensitive_dedup(db_session):
+    """Tag deduplication in append_bookmark_tags is case-sensitive (exact match)."""
+    bm = _sample_bookmark(id="tag-3", tags=["Python"])
+    upsert_bookmark(db_session, bm)
+
+    # "python" (lowercase) is NOT a duplicate of "Python" (titlecase)
+    result = append_bookmark_tags(db_session, "tag-3", ["python"])
+    assert result is True
+
+    loaded = get_bookmark(db_session, "tag-3")
+    assert loaded is not None
+    # Both tags present because dedup is case-sensitive
+    assert loaded.tags == ["Python", "python"]
+
+
+def test_search_bookmarks_fts_by_description(db_session):
+    """search_bookmarks_fts finds bookmarks by description keywords."""
+    save_bookmarks(
+        db_session,
+        [
+            _sample_bookmark(
+                id="fts-desc", title="Random Title", description="asynchronous programming in Rust"
+            ),
+        ],
+    )
+    # Search by description keyword, not title
+    results = search_bookmarks_fts(db_session, "asynchronous")
+    assert len(results) == 1
+    assert results[0].id == "fts-desc"

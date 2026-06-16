@@ -256,3 +256,54 @@ def test_health_endpoint(db_session, test_client):
     data = response.json()
     assert data["status"] == "ok"
     assert data["bookmarks"] == 1
+
+
+def test_api_ingest_response_fields_and_persistence(db_session, test_client):
+    """Pin /api/ingest response shape and verify SQLite persistence."""
+    from cerebro.utils import compute_id
+
+    url = "https://example.com/ingest-test"
+    title = "Ingest Response Test"
+    tags = ["api", "regression"]
+    description = "Pinning ingest behavior"
+
+    expected_id = compute_id(url, title)
+
+    response = test_client.post(
+        "/api/ingest",
+        json={
+            "url": url,
+            "title": title,
+            "tags": tags,
+            "description": description,
+        },
+    )
+
+    # 1. Status code
+    assert response.status_code == 201
+
+    data = response.json()
+
+    # 2. Response fields
+    assert "id" in data
+    assert "status" in data
+    assert data["status"] == "created"
+
+    # 3. ID matches compute_id
+    assert data["id"] == expected_id
+
+    # 4. Persisted in SQLite with matching fields
+    from cerebro.db import get_bookmark
+
+    persisted = get_bookmark(db_session, expected_id)
+    assert persisted is not None
+    assert persisted.url == url
+    assert persisted.title == title
+    assert persisted.tags == tags
+    assert persisted.description == description
+    assert persisted.id == expected_id
+    # Default fields set by the endpoint
+    assert persisted.domain == ""
+    assert persisted.category_breadcrumbs == []
+    assert persisted.confidence_score == 0.0
+    assert persisted.is_dead_link is False
