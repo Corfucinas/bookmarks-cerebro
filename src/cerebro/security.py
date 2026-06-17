@@ -14,7 +14,6 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
-# --- Validation constants ---
 MAX_URL_LENGTH = 4096
 MAX_TITLE_LENGTH = 500
 MAX_DESCRIPTION_LENGTH = 4096
@@ -23,7 +22,6 @@ MAX_TAGS = 50
 MAX_CONTENT_LENGTH_BYTES = 1024 * 1024  # 1 MiB
 ALLOWED_URL_SCHEMES = {"http", "https"}
 
-# --- Security headers ---
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -158,9 +156,6 @@ def add_security_middleware(app: FastAPI, cors_origins: list[str] | None = None)
         max_age=600,
     )
     app.add_middleware(_RateLimitMiddleware)
-
-
-# --- Input validation ---
 
 
 def validate_url(url: str | None) -> str:

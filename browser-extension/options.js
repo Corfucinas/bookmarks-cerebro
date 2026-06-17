@@ -18,30 +18,53 @@ document.addEventListener("DOMContentLoaded", async () => {
   autoTagCheckbox.checked = settings?.autoTag !== false; // Default true
 
   // Render queue with retry/remove controls
-  async function renderQueue() {
-    const { queue, } = await chrome.runtime.sendMessage({ action: "getQueue", },);
-    if (!queue || queue.length === 0) {
-      queueList.innerHTML = "<div class=\"queue-empty\">No pending bookmarks</div>";
-      pendingCount.textContent = "0";
+  /**
+   * Shared renderer for the pending-queue and failed-queue sections.
+   * @param {object} cfg - Section configuration.
+   * @param {HTMLElement} cfg.listEl - List container element.
+   * @param {HTMLElement} cfg.countEl - Element displaying the item count.
+   * @param {HTMLElement|null} cfg.sectionEl - Section wrapper; hidden when empty.
+   * @param {string} cfg.action - Background message action (e.g. "getQueue").
+   * @param {string} cfg.responseKey - Key on the response holding the items array.
+   * @param {string} cfg.emptyText - Text shown when the list is empty.
+   * @param {string} cfg.itemClass - CSS class for each rendered item row.
+   * @param {(item: object) => string} cfg.renderMeta - Returns the inner meta HTML for an item.
+   * @param {Array<{className: string, label: string, messageAction: string}>} cfg.buttons - Buttons to attach to each item.
+   */
+  async function renderQueueSection(cfg,) {
+    const {
+      listEl,
+      countEl,
+      sectionEl,
+      action,
+      responseKey,
+      emptyText,
+      itemClass,
+      renderMeta,
+      buttons,
+    } = cfg;
+    const response = await chrome.runtime.sendMessage({ action, },);
+    const items = response?.[responseKey] || [];
+
+    if (items.length === 0) {
+      if (sectionEl) sectionEl.style.display = "none";
+      else listEl.innerHTML = `<div class="queue-empty">${emptyText}</div>`;
+      countEl.textContent = "0";
       return;
     }
 
-    pendingCount.textContent = String(queue.length,);
+    if (sectionEl) sectionEl.style.display = "block";
+    countEl.textContent = String(items.length,);
 
-    queueList.innerHTML = queue
+    listEl.innerHTML = items
       .map(
         (item, idx,) => `
-      <div class="queue-item">
+      <div class="${itemClass}">
         <div class="url">${escapeHtml(item.url,)}</div>
         <div class="meta">
-          <span>${escapeHtml(item.title || "Untitled",)}</span>
-          <span>•</span>
-          <span>${new Date(item.enqueuedAt || item.timestamp,).toLocaleString()}</span>
-          <span>•</span>
-          <span>Attempts: ${item.attempts || 0}</span>
+          ${renderMeta(item,)}
           <div class="queue-actions">
-            <button class="retry-btn" data-idx="${idx}">Retry</button>
-            <button class="remove-btn" data-idx="${idx}">Remove</button>
+            ${buttons.map((b,) => `<button class="${b.className}" data-idx="${idx}">${b.label}</button>`).join("",)}
           </div>
         </div>
       </div>
@@ -49,70 +72,67 @@ document.addEventListener("DOMContentLoaded", async () => {
       )
       .join("",);
 
-    queueList.querySelectorAll(".retry-btn",).forEach((btn,) => {
-      btn.addEventListener("click", async () => {
-        btn.disabled = true;
-        await chrome.runtime.sendMessage({ action: "retryNow", },);
-        await renderQueue();
+    for (const b of buttons) {
+      listEl.querySelectorAll(`.${b.className}`,).forEach((btn,) => {
+        btn.addEventListener("click", async () => {
+          btn.disabled = true;
+          const idx = Number(btn.dataset.idx,);
+          await chrome.runtime.sendMessage({ action: b.messageAction, index: idx, },);
+          await renderQueueSection(cfg,);
+        },);
       },);
-    },);
-
-    queueList.querySelectorAll(".remove-btn",).forEach((btn,) => {
-      btn.addEventListener("click", async () => {
-        const idx = Number(btn.dataset.idx,);
-        await chrome.runtime.sendMessage({ action: "removeQueueItem", index: idx, },);
-        await renderQueue();
-      },);
-    },);
+    }
   }
 
-  // Render failed queue
-  async function renderFailedQueue() {
-    const { failedQueue, } = await chrome.runtime.sendMessage({ action: "getFailedQueue", },);
-    if (!failedQueue || failedQueue.length === 0) {
-      failedSection.style.display = "none";
-      failedCount.textContent = "0";
-      return;
-    }
+  const pendingCfg = {
+    listEl: queueList,
+    countEl: pendingCount,
+    sectionEl: null,
+    action: "getQueue",
+    responseKey: "queue",
+    emptyText: "No pending bookmarks",
+    itemClass: "queue-item",
+    renderMeta: (item,) => `
+          <span>${escapeHtml(item.title || "Untitled",)}</span>
+          <span>•</span>
+          <span>${new Date(item.enqueuedAt || item.timestamp,).toLocaleString()}</span>
+          <span>•</span>
+          <span>Attempts: ${item.attempts || 0}</span>
+        `,
+    buttons: [
+      { className: "retry-btn", label: "Retry", messageAction: "retryNow", },
+      { className: "remove-btn", label: "Remove", messageAction: "removeQueueItem", },
+    ],
+  };
 
-    failedSection.style.display = "block";
-    failedCount.textContent = String(failedQueue.length,);
-
-    failedList.innerHTML = failedQueue
-      .map(
-        (item, idx,) => `
-      <div class="failed-item">
-        <div class="url">${escapeHtml(item.url,)}</div>
-        <div class="meta">
+  const failedCfg = {
+    listEl: failedList,
+    countEl: failedCount,
+    sectionEl: failedSection,
+    action: "getFailedQueue",
+    responseKey: "failedQueue",
+    emptyText: "",
+    itemClass: "failed-item",
+    renderMeta: (item,) => `
           <span>${escapeHtml(item.title || "Untitled",)}</span>
           <span>•</span>
           <span>Failed: ${new Date(item.failedAt,).toLocaleString()}</span>
           <span>•</span>
           <span>Attempts: ${item.attempts || 5}</span>
-          <button class="remove-btn" data-idx="${idx}">Remove</button>
-        </div>
-      </div>
-    `,
-      )
-      .join("",);
+        `,
+    buttons: [
+      { className: "remove-btn", label: "Remove", messageAction: "removeFailedItem", },
+    ],
+  };
 
-    failedList.querySelectorAll(".remove-btn",).forEach((btn,) => {
-      btn.addEventListener("click", async () => {
-        const idx = Number(btn.dataset.idx,);
-        await chrome.runtime.sendMessage({ action: "removeFailedItem", index: idx, },);
-        await renderFailedQueue();
-      },);
-    },);
-  }
+  await renderQueueSection(pendingCfg,);
+  await renderQueueSection(failedCfg,);
 
   function escapeHtml(str,) {
     const div = document.createElement("div",);
     div.textContent = str;
     return div.innerHTML;
   }
-
-  await renderQueue();
-  await renderFailedQueue();
 
   // Save settings
   saveBtn.addEventListener("click", async () => {
@@ -141,8 +161,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     retryAllBtn.disabled = true;
     retryAllBtn.textContent = "Retrying...";
     await chrome.runtime.sendMessage({ action: "retryNow", },);
-    await renderQueue();
-    await renderFailedQueue();
+    await renderQueueSection(pendingCfg,);
+    await renderQueueSection(failedCfg,);
     retryAllBtn.disabled = false;
     retryAllBtn.textContent = "Retry All Now";
   },);

@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable, Generator
 from pathlib import Path
 from typing import Annotated, Any
 
+import sqlalchemy.exc
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -39,15 +40,12 @@ from src.cerebro.models import Bookmark
 from src.cerebro.security import add_security_middleware, sanitize_ingest_payload
 from src.cerebro.utils import compute_id
 
-# Template directory relative to this file
 TEMPLATES_DIR = Path(__file__).resolve().parent / "dashboard_templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 app = FastAPI(title="Bookmarks Cerebro Dashboard", version="1.0.0")
 
-# Register security middleware (headers, CORS, request size, rate limiting)
 add_security_middleware(app)
-# Constants
 PER_PAGE = 50
 
 
@@ -257,12 +255,10 @@ async def stats(request: Request, db: DBSession) -> HTMLResponse:
     total = count_bookmarks(db)
     dead_links = count_dead_links(db)
 
-    # Get all bookmarks to compute top categories
     bookmarks = get_bookmarks(db, limit=10000)  # Reasonable limit for stats
     category_counts: Counter[str] = Counter()
     for bm in bookmarks:
         if bm.category_breadcrumbs:
-            # Use the last breadcrumb as the primary category
             category_counts[bm.category_breadcrumbs[-1]] += 1
 
     top_categories = category_counts.most_common(10)
@@ -290,14 +286,13 @@ async def metrics() -> PlainTextResponse:
 
 @app.get("/health", response_class=JSONResponse)
 async def health(db: DBSession) -> JSONResponse:
-    """Health check endpoint verifying database connectivity."""
     try:
         total = count_bookmarks(db)
         return JSONResponse(
             content={"status": "ok", "bookmarks": total},
             status_code=200,
         )
-    except Exception as exc:
+    except (sqlalchemy.exc.SQLAlchemyError, OSError) as exc:
         return JSONResponse(
             content={"status": "error", "detail": str(exc)},
             status_code=503,

@@ -1,3 +1,12 @@
+async function updateQueueCount(queueCountEl, queueResult,) {
+  if (queueResult?.queue?.length > 0) {
+    queueCountEl.textContent = `Queue: ${queueResult.queue.length} pending`;
+    queueCountEl.style.display = "block";
+  } else {
+    queueCountEl.style.display = "none";
+  }
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   const urlEl = document.getElementById("url",);
   const btn = document.getElementById("cerebro-btn",);
@@ -23,18 +32,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // Show offline queue count
-  const queueResult = await chrome.runtime.sendMessage({ action: "getQueue", },);
-  if (queueResult?.queue?.length > 0) {
-    queueCountEl.textContent = `Queue: ${queueResult.queue.length} pending`;
-    queueCountEl.style.display = "block";
-  }
+  await updateQueueCount(queueCountEl, await chrome.runtime.sendMessage({ action: "getQueue", },),);
 
   // Extract metadata from content script (inject if not present)
   let metadata = {};
   try {
     const [response,] = await chrome.tabs.sendMessage(tab.id, { action: "extractMetadata", },);
     metadata = response || {};
-  } catch {
+  } catch (e) {
+    console.error("Content script communication failed:", e,);
     await chrome.scripting.executeScript({
       target: { tabId: tab.id, },
       files: ["content.js",],
@@ -74,13 +80,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     } finally {
       btn.disabled = false;
       // Refresh queue count
-      const qr = await chrome.runtime.sendMessage({ action: "getQueue", },);
-      if (qr?.queue?.length > 0) {
-        queueCountEl.textContent = `Queue: ${qr.queue.length} pending`;
-        queueCountEl.style.display = "block";
-      } else {
-        queueCountEl.style.display = "none";
-      }
+      await updateQueueCount(queueCountEl, await chrome.runtime.sendMessage({ action: "getQueue", },),);
     }
   },);
 

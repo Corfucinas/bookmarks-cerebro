@@ -41,7 +41,6 @@ def _markdown_body(bookmark: Bookmark, related: list[tuple[Bookmark, str]]) -> s
         f"- [Open]({bookmark.url})",
     ]
 
-    # Dead link warning
     if bookmark.is_dead_link:
         status_str = str(bookmark.http_status) if bookmark.http_status else "unknown"
         lines.extend(
@@ -51,7 +50,6 @@ def _markdown_body(bookmark: Bookmark, related: list[tuple[Bookmark, str]]) -> s
             ]
         )
 
-    # Duplicate warning
     if bookmark.duplicate_group_id:
         lines.extend(
             [
@@ -60,7 +58,6 @@ def _markdown_body(bookmark: Bookmark, related: list[tuple[Bookmark, str]]) -> s
             ]
         )
 
-    # Fetched OG metadata
     fm = bookmark.fetched_metadata
     if fm and not bookmark.is_dead_link:
         og_title = fm.get("og_title")
@@ -125,7 +122,6 @@ def export_obsidian(
     vault_dir = ensure_dir(Path(vault_dir))
     logger.info(f"Exporting Obsidian vault to {vault_dir}")
 
-    # Group by category for related links
     by_category: dict[str, list[Bookmark]] = {}
     by_domain: dict[str, list[Bookmark]] = {}
     for bm in bookmarks:
@@ -140,24 +136,17 @@ def export_obsidian(
         cat_dir = vault_dir / "/".join(bm.category_breadcrumbs)
         ensure_dir(cat_dir)
 
-        # Build related bookmarks from three signals:
-        # 1. Same category
-        # 2. Same domain
-        # 3. Temporal co-occurrence (bookmarked within 30 min)
         related: list[tuple[Bookmark, str]] = []
         related_ids: set[str] = set()
-        # Signal 1: same category
         for r in by_category.get(bm.category_path, []):
             if r.id != bm.id and r.id not in related_ids:
                 related.append((r, "Same category"))
                 related_ids.add(r.id)
-        # Signal 2: same domain
         if bm.domain:
             for r in by_domain.get(bm.domain, []):
                 if r.id != bm.id and r.id not in related_ids and len(related) < max_related * 2:
                     related.append((r, f"Same domain: {bm.domain}"))
                     related_ids.add(r.id)
-        # Signal 3: temporal (bookmarked within 30 minutes)
         if bm.add_date_epoch:
             bm_epoch = int(bm.add_date_epoch) if bm.add_date_epoch else 0
             for r in bookmarks:
@@ -172,12 +161,10 @@ def export_obsidian(
         front = _frontmatter(bm)
         body = _markdown_body(bm, related)
 
-        # YAML frontmatter block
         yaml_block = yaml.dump(front, default_flow_style=False, allow_unicode=True, sort_keys=False)
         content = f"---\n{yaml_block}---\n\n{body}\n"
 
         file_path = cat_dir / f"{bm.safe_title}.md"
-        # Handle duplicates
         if file_path.exists():
             file_path = cat_dir / f"{safe_filename(bm.title)}_{bm.id[:8]}.md"
 

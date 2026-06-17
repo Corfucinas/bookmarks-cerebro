@@ -99,7 +99,7 @@ class CerebroHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(content_length)
         try:
             payload = json.loads(raw.decode("utf-8"))
-        except Exception as e:
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
             self._json_response(400, {"error": f"Invalid JSON: {e}"})
             return
 

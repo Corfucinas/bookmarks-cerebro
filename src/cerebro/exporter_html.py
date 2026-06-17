@@ -58,7 +58,6 @@ def _build_taxonomy_tree(bookmarks: list[Bookmark]) -> dict[str, Any]:
             if crumb not in node:
                 node[crumb] = {}
             node = node[crumb]
-        # Store bookmark in leaf
         if "__bookmarks__" not in node:
             node["__bookmarks__"] = []
         node["__bookmarks__"].append(bm)
@@ -68,14 +67,12 @@ def _build_taxonomy_tree(bookmarks: list[Bookmark]) -> dict[str, Any]:
 def _tree_to_html(tree: dict[str, Any], indent: int = 1) -> str:
     """Convert tree dict to Netscape HTML."""
     lines = []
-    # Sort for determinism
     for key in sorted(tree.keys()):
         if key == "__bookmarks__":
             continue
         value = tree[key]
         if isinstance(value, dict):
             children_html = _tree_to_html(value, indent + 1)
-            # Add bookmarks in this folder
             if "__bookmarks__" in value:
                 bm_lines = [_build_link_html(bm, indent + 1) for bm in value["__bookmarks__"]]
                 if children_html:
@@ -94,7 +91,6 @@ def export_html(bookmarks: list[Bookmark], output_path: Path | str) -> Path:
     tree = _build_taxonomy_tree(bookmarks)
     body = _tree_to_html(tree)
 
-    # Add root-level bookmarks
     if "__bookmarks__" in tree:
         root_bms = "\n".join(_build_link_html(bm, 1) for bm in tree["__bookmarks__"])
         body = root_bms + "\n" + body if body else root_bms

@@ -167,6 +167,31 @@ export async function ingestBookmark(payload,) {
 }
 
 // ------------------------------------------------------------------
+// Ingest with offline-queue fallback (dedup → ingest → enqueue)
+// ------------------------------------------------------------------
+export async function ingestWithFallback(payload,) {
+  const dup = await isDuplicate(payload.url, payload.title,);
+  const result = await ingestBookmark(payload,);
+  if (!result.success) {
+    await enqueueBookmark(payload,);
+  }
+  return { result, dup, };
+}
+
+// ------------------------------------------------------------------
+// Flash the badge amber to signal a duplicate was detected
+// ------------------------------------------------------------------
+export async function flashDuplicateBadge() {
+  const api = getChromeApi();
+  if (!api) return;
+  await api.action.setBadgeText({ text: "DUP", },);
+  await api.action.setBadgeBackgroundColor({ color: "#ca8a04", },);
+  setTimeout(() => {
+    updateBadge().catch((e,) => console.error("Badge reset failed:", e,));
+  }, 2000,);
+}
+
+// ------------------------------------------------------------------
 // Retry queue processing (called by alarm + online event)
 // ------------------------------------------------------------------
 export async function drainQueue() {
@@ -272,23 +297,14 @@ async function handleContextMenuClick(info, tab,) {
         args: [info.linkUrl,],
       },);
       if (result) payload.title = result;
-    } catch {
-      // Ignore injection failures
+    } catch (e) {
+      console.error("Script injection failed:", e,);
     }
   }
 
-  const dup = await isDuplicate(payload.url, payload.title,);
-  const result = await ingestBookmark(payload,);
-  if (!result.success) {
-    await enqueueBookmark(payload,);
-  }
+  const { dup, } = await ingestWithFallback(payload,);
 
-  // Brief badge flash for duplicate warning on background actions
-  if (dup && getChromeApi()) {
-    await getChromeApi().action.setBadgeText({ text: "DUP", },);
-    await getChromeApi().action.setBadgeBackgroundColor({ color: "#ca8a04", },);
-    setTimeout(() => updateBadge(), 2000,);
-  }
+  if (dup) await flashDuplicateBadge();
 }
 
 // ------------------------------------------------------------------
@@ -322,21 +338,13 @@ async function handleCommand(command,) {
       payload.description = meta.description;
       payload.selectedText = meta.selectedText;
     }
-  } catch {
-    // Ignore injection errors
+  } catch (e) {
+    console.error("Metadata extraction failed:", e,);
   }
 
-  const dup = await isDuplicate(payload.url, payload.title,);
-  const result = await ingestBookmark(payload,);
-  if (!result.success) {
-    await enqueueBookmark(payload,);
-  }
+  const { dup, } = await ingestWithFallback(payload,);
 
-  if (dup) {
-    await chromeApi.action.setBadgeText({ text: "DUP", },);
-    await chromeApi.action.setBadgeBackgroundColor({ color: "#ca8a04", },);
-    setTimeout(() => updateBadge(), 2000,);
-  }
+  if (dup) await flashDuplicateBadge();
 }
 
 // ------------------------------------------------------------------
@@ -346,11 +354,7 @@ async function handleMessage(request, _sender, sendResponse,) {
   try {
     switch (request.action) {
       case "ingest": {
-        const dup = await isDuplicate(request.payload.url, request.payload.title,);
-        const result = await ingestBookmark(request.payload,);
-        if (!result.success) {
-          await enqueueBookmark(request.payload,);
-        }
+        const { result, dup, } = await ingestWithFallback(request.payload,);
         sendResponse({ ...result, duplicate: dup, },);
         break;
       }
@@ -436,20 +440,20 @@ export function registerBrowserListeners() {
 
   if (chromeApi.contextMenus?.onClicked) {
     chromeApi.contextMenus.onClicked.addListener((info, tab,) => {
-      handleContextMenuClick(info, tab,).catch(() => {},);
+      handleContextMenuClick(info, tab,).catch((e,) => console.error("Context menu ingest failed:", e,));
     },);
   }
 
   if (chromeApi.commands?.onCommand) {
     chromeApi.commands.onCommand.addListener((command,) => {
-      handleCommand(command,).catch(() => {},);
+      handleCommand(command,).catch((e,) => console.error("Command ingest failed:", e,));
     },);
   }
 
   if (chromeApi.alarms?.onAlarm) {
     chromeApi.alarms.onAlarm.addListener((alarm,) => {
       if (alarm.name === "drainQueue") {
-        drainQueue().catch(() => {},);
+        drainQueue().catch((e,) => console.error("Queue drain failed:", e,));
       }
     },);
   }
@@ -466,7 +470,7 @@ export function registerBrowserListeners() {
   }
 
   if (chromeApi.action) {
-    updateBadge().catch(() => {},);
+    updateBadge().catch((e,) => console.error("Badge update failed:", e,));
   }
 }
 
@@ -477,6 +481,6 @@ if (getChromeApi() && typeof globalThis.__CEREBRO_TEST__ === "undefined") {
 
 if (typeof self !== "undefined") {
   self.addEventListener("online", () => {
-    drainQueue().catch(() => {},);
+    drainQueue().catch((e,) => console.error("Online drain failed:", e,));
   },);
 }

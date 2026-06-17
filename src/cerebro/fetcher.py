@@ -56,7 +56,7 @@ def _fetch(method: str, url: str, timeout: int) -> Any:
         return urllib.request.urlopen(req, timeout=timeout, context=_create_ssl_context())
     except urllib.error.HTTPError as e:
         return e
-    except Exception:
+    except urllib.error.URLError:
         return None
 
 
@@ -80,7 +80,7 @@ def _read_body(resp: Any) -> str:
             charset = content_type.split("charset=")[-1].split(";")[0].strip()
         decoded: str = data.decode(charset, errors="replace")
         return decoded
-    except Exception:
+    except (UnicodeDecodeError, ValueError):
         return ""
 
 
@@ -126,7 +126,6 @@ def _fetch_page(url: str, timeout: int = DEFAULT_TIMEOUT) -> dict[str, Any]:
         "error": None,
     }
 
-    # Try HEAD first
     head_resp = None
     for attempt in range(RETRIES):
         head_resp = _fetch_head(url, timeout)
@@ -152,7 +151,6 @@ def _fetch_page(url: str, timeout: int = DEFAULT_TIMEOUT) -> dict[str, Any]:
                 result["is_dead"] = False
                 return result
 
-    # GET for body
     for attempt in range(RETRIES):
         get_resp = _fetch_get(url, timeout)
         if get_resp is None:

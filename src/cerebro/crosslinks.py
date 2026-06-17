@@ -33,7 +33,6 @@ def find_crosslinks(bookmarks: list[Bookmark]) -> list[Bookmark]:
 
     related: dict[str, set[str]] = defaultdict(set)
 
-    # 1. URL mentions in title/description
     url_pattern = re.compile(r"https?://[^\s\"'<>)>]+")
     for bm in bookmarks:
         text = f"{bm.title} {bm.description}"
@@ -42,13 +41,11 @@ def find_crosslinks(bookmarks: list[Bookmark]) -> list[Bookmark]:
             if target_id and target_id != bm.id:
                 related[bm.id].add(target_id)
 
-    # 2. Shared domain (exclude self)
     for _domain, ids in domain_groups.items():
         if len(ids) > 1:
             for bm_id in ids:
                 related[bm_id].update(i for i in ids if i != bm_id)
 
-    # 3. Shared tags (3+ shared tags = strong relation)
     for bm in bookmarks:
         candidate_scores: dict[str, int] = defaultdict(int)
         for tag in bm.tags:
@@ -59,7 +56,6 @@ def find_crosslinks(bookmarks: list[Bookmark]) -> list[Bookmark]:
             if score >= 3:
                 related[bm.id].add(other_id)
 
-    # 4. Same top-2 category
     for _cat, ids in cat_groups.items():
         if len(ids) > 1:
             for bm_id in ids:
@@ -69,7 +65,6 @@ def find_crosslinks(bookmarks: list[Bookmark]) -> list[Bookmark]:
     bm_by_id = {bm.id: bm for bm in bookmarks}
     for bm in bookmarks:
         rel_ids = related.get(bm.id, set())
-        # Score by number of shared tags
         scores: dict[str, int] = {}
         my_tags = set(bm.tags)
         for rid in rel_ids:
