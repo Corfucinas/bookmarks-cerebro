@@ -10,3 +10,4 @@ notes.txt
 browser-extension/node_modules/
 browser-extension/package-lock.json
 .venv/
+PLAN-IMPROVEMENTS.md
