@@ -1,78 +1,61 @@
-"""CLI entrypoint for Bookmarks Cerebro."""
+"""CLI entrypoint for Bookmarks Cerebro.
+
+This module owns the top-level `cli` group and the core single-stage commands
+(parse, classify, enrich, dedup, search). Subcommand groups and admin
+commands live in dedicated modules and are registered here so that
+`from src.cerebro.cli import cli` and the `cerebro` console script keep working.
+
+`run_server` and `run_dashboard` are re-exported (not called here) so that
+`unittest.mock.patch("cerebro.cli.run_server")` and `patch("cerebro.cli.run_dashboard")`
+have a target attribute on this module — see tests/test_cli_config_overrides.py.
+"""
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
 
 import click
 
 from src.cerebro import __version__
 from src.cerebro.classifier import classify_bookmarks
+
+# Register subgroup + sibling commands. Imports are absolute per AGENTS.md.
+from src.cerebro.cli_admin import (
+    config as config_cmd,
+)
+from src.cerebro.cli_admin import (
+    dashboard as dashboard_cmd,
+)
+from src.cerebro.cli_admin import (
+    db_status,
+    git_push,
+    migrate_db,
+)
+from src.cerebro.cli_admin import (
+    serve as serve_cmd,
+)
+from src.cerebro.cli_export_group import export
+from src.cerebro.cli_graph import crosslinks, tag_graph
+from src.cerebro.cli_pipeline import pipeline
 from src.cerebro.config import load_settings
-from src.cerebro.crosslinks import find_crosslinks
 from src.cerebro.dashboard import run_dashboard
-from src.cerebro.db import count_bookmarks, count_dead_links, get_session, save_bookmarks
 from src.cerebro.dedup import detect_duplicates
 from src.cerebro.enricher import enrich_bookmarks
-from src.cerebro.exporter_csv import export_csv
-from src.cerebro.exporter_html import export_html
-from src.cerebro.exporter_json import export_json
-from src.cerebro.exporter_jsonl import export_jsonl
-from src.cerebro.exporter_obsidian import export_obsidian
-from src.cerebro.fetcher import fetch_bookmarks
 from src.cerebro.models import Bookmark
 from src.cerebro.parser import parse_bookmarks
 from src.cerebro.search import search_from_file
 from src.cerebro.server import run_server
 from src.cerebro.utils import load_json, save_json, setup_logging
 
-
-def _write_gexf(
-    path: Path,
-    nodes: dict[str, str],
-    edges: Iterable[tuple[str, str] | tuple[str, str, float | int]],
-    directed: bool,
-) -> None:
-    """Write a minimal GEXF 1.2 graph file.
-
-    Args:
-        path: output file path (parent directories are created).
-        nodes: mapping of node id to node label.
-        edges: iterable of (source, target) or (source, target, weight).
-        directed: whether the graph is directed (undirected otherwise).
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    edge_type = "directed" if directed else "undirected"
-    edge_list: list[tuple[str, str, str | None]] = []
-    for raw in edges:
-        if len(raw) == 3:
-            src, tgt, w = raw
-            edge_list.append((src, tgt, str(w)))
-        else:
-            src, tgt = raw
-            edge_list.append((src, tgt, None))
-
-    with open(path, "w", encoding="utf-8") as f:
-        f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
-        f.write('<gexf xmlns="http://www.gexf.net/1.2draft" version="1.2">\n')
-        f.write(f'  <graph mode="static" defaultedgetype="{edge_type}">\n')
-        f.write(f'    <nodes count="{len(nodes)}">\n')
-        for nid, label in nodes.items():
-            f.write(f'      <node id="{nid}" label="{label}" />\n')
-        f.write("    </nodes>\n")
-        f.write(f'    <edges count="{len(edge_list)}">\n')
-        for src, tgt, weight in edge_list:
-            if weight is not None:
-                f.write(f'      <edge source="{src}" target="{tgt}" weight="{weight}" />\n')
-            else:
-                f.write(f'      <edge source="{src}" target="{tgt}" />\n')
-        f.write("    </edges>\n")
-        f.write("  </graph>\n")
-        f.write("</gexf>\n")
-
+# Re-exports kept as module attributes so test patches targeting
+# `cerebro.cli.run_server` / `cerebro.cli.run_dashboard` resolve correctly.
+__all__ = [
+    "cli",
+    "main",
+    "run_server",
+    "run_dashboard",
+]
 
 logger = logging.getLogger("cerebro")
 
@@ -181,161 +164,6 @@ def dedup(input_json: Path, output: Path, mode: str, threshold: float) -> None:
     click.echo(f"✓ Deduped ({mode}): {len(groups)} groups → {output}")
 
 
-@cli.group()
-def export() -> None:
-    """Export bookmarks to various formats."""
-    pass
-
-
-@export.command("json")
-@click.argument("input_json", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default="data/processed/enriched_bookmarks.json",
-)
-def export_json_cmd(input_json: Path, output: Path) -> None:
-    """Export to JSON."""
-
-    data = load_json(input_json)
-
-    bookmarks = [Bookmark.from_dict(d) for d in data]
-    export_json(bookmarks, output)
-    click.echo(f"✓ Exported JSON → {output}")
-
-
-@export.command("obsidian")
-@click.argument("input_json", type=click.Path(exists=True, path_type=Path))
-@click.option("--vault-dir", "-d", type=click.Path(path_type=Path), default="data/vault")
-def export_obsidian_cmd(input_json: Path, vault_dir: Path) -> None:
-    """Export to Obsidian markdown vault."""
-
-    data = load_json(input_json)
-
-    bookmarks = [Bookmark.from_dict(d) for d in data]
-    export_obsidian(bookmarks, vault_dir)
-    click.echo(f"✓ Exported Obsidian vault → {vault_dir}")
-
-
-@export.command("html")
-@click.argument("input_json", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default="data/processed/bookmarks_cerebro.html",
-)
-def export_html_cmd(input_json: Path, output: Path) -> None:
-    """Export to Netscape Bookmark HTML."""
-
-    data = load_json(input_json)
-
-    bookmarks = [Bookmark.from_dict(d) for d in data]
-    export_html(bookmarks, output)
-    click.echo(f"✓ Exported HTML → {output}")
-
-
-@export.command("jsonl")
-@click.argument("input_json", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--output", "-o", type=click.Path(path_type=Path), default="data/processed/bookmarks.jsonl"
-)
-def export_jsonl_cmd(input_json: Path, output: Path) -> None:
-    """Export to JSONL (one JSON object per line)."""
-
-    data = load_json(input_json)
-    bookmarks = [Bookmark.from_dict(d) for d in data]
-    export_jsonl(bookmarks, output)
-    click.echo(f"✓ Exported JSONL → {output}")
-
-
-@export.command("csv")
-@click.argument("input_json", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--output", "-o", type=click.Path(path_type=Path), default="data/processed/bookmarks.csv"
-)
-def export_csv_cmd(input_json: Path, output: Path) -> None:
-    """Export to CSV."""
-
-    data = load_json(input_json)
-    bookmarks = [Bookmark.from_dict(d) for d in data]
-    export_csv(bookmarks, output)
-    click.echo(f"✓ Exported CSV → {output}")
-
-
-@cli.command()
-@click.argument("input_html", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--taxonomy", "-t", type=click.Path(exists=True, path_type=Path), default="taxonomy.yaml"
-)
-@click.option("--output-dir", "-d", type=click.Path(path_type=Path), default="data")
-@click.option("--no-ml", is_flag=True, help="Skip ML fallback classification")
-@click.option("--check-dead", is_flag=True, help="Fetch all pages and flag dead links")
-@click.option("--fetch-live", is_flag=True, help="Fetch live page metadata (title, OG tags)")
-@click.option("--fetch-workers", type=int, default=20, help="Parallel fetch workers")
-@click.option("--fetch-timeout", type=int, default=15, help="Fetch timeout per page")
-@click.option("--to-db", is_flag=True, help="Persist enriched bookmarks to SQLite database")
-@click.pass_obj
-def pipeline(
-    obj: dict[str, Any],
-    input_html: Path,
-    taxonomy: Path,
-    output_dir: Path,
-    no_ml: bool,
-    check_dead: bool,
-    fetch_live: bool,
-    fetch_workers: int,
-    fetch_timeout: int,
-    to_db: bool,
-) -> None:
-    """Run full pipeline: parse → classify → dedup → [fetch] → enrich → [export/db]."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    click.echo("📖 Parsing...")
-    bookmarks = parse_bookmarks(input_html)
-
-    click.echo("🧠 Classifying...")
-    bookmarks = classify_bookmarks(bookmarks, taxonomy, train_ml=not no_ml)
-
-    click.echo("🔍 Detecting duplicates...")
-    bookmarks = detect_duplicates(bookmarks)
-
-    if check_dead or fetch_live:
-        click.echo("🌐 Fetching live pages..." if fetch_live else "💀 Checking for dead links...")
-        bookmarks = fetch_bookmarks(bookmarks, max_workers=fetch_workers, timeout=fetch_timeout)
-
-    click.echo("🏷️ Enriching...")
-    bookmarks = enrich_bookmarks(bookmarks)
-
-    if to_db:
-        click.echo("💾 Persisting to SQLite...")
-        settings = obj["settings"]
-        with get_session(settings.db_url) as session:
-            count = save_bookmarks(session, bookmarks)
-            total = count_bookmarks(session)
-        click.echo(f"✓ Saved {count} bookmarks to database (total {total})")
-
-    click.echo("📤 Exporting...")
-    enriched_json = output_dir / "processed" / "enriched_bookmarks.json"
-    enriched_json.parent.mkdir(parents=True, exist_ok=True)
-    export_json(bookmarks, enriched_json)
-
-    vault_dir = output_dir / "vault"
-    export_obsidian(bookmarks, vault_dir)
-
-    html_output = output_dir / "processed" / "bookmarks_cerebro.html"
-    export_html(bookmarks, html_output)
-
-    click.echo("\n✅ Pipeline complete!")
-    click.echo(f"   JSON:  {enriched_json}")
-    click.echo(f"   Vault: {vault_dir}")
-    click.echo(f"   HTML:  {html_output}")
-    if to_db:
-        settings = obj["settings"]
-        click.echo(f"   DB:    {settings.database.path}")
-
-
 @cli.command()
 @click.argument("input_json", type=click.Path(exists=True, path_type=Path))
 @click.argument("query")
@@ -359,174 +187,17 @@ def search_cmd(input_json: Path, query: str, top_k: int, min_score: float) -> No
         click.echo()
 
 
-@cli.command()
-@click.pass_obj
-def config(obj: dict[str, Any]) -> None:
-    """Print the loaded configuration."""
-    settings = obj["settings"]
-    click.echo(f"database.path = {settings.database.path}")
-    click.echo(f"database.migrations_path = {settings.database.migrations_path}")
-    click.echo(f"server.host = {settings.server.host}")
-    click.echo(f"server.port = {settings.server.port}")
-    click.echo(f"dashboard.host = {settings.dashboard.host}")
-    click.echo(f"dashboard.port = {settings.dashboard.port}")
-    click.echo(f"fetcher.timeout = {settings.fetcher.timeout}")
-    click.echo(f"fetcher.max_workers = {settings.fetcher.max_workers}")
-    click.echo(f"ml.enable_classifier = {settings.ml.enable_classifier}")
-
-
-@cli.command()
-@click.pass_obj
-def migrate_db(obj: dict[str, Any]) -> None:
-    """Create or upgrade the SQLite database schema."""
-    settings = obj["settings"]
-    with get_session(settings.db_url) as session:
-        total = count_bookmarks(session)
-    click.echo(f"✓ Database ready at {settings.database.path}")
-    click.echo(f"  Existing bookmarks: {total}")
-
-
-@cli.command()
-@click.pass_obj
-def db_status(obj: dict[str, Any]) -> None:
-    """Show database status and counts."""
-    settings = obj["settings"]
-    with get_session(settings.db_url) as session:
-        total = count_bookmarks(session)
-        dead = count_dead_links(session)
-    click.echo(f"Database: {settings.database.path}")
-    click.echo(f"  Total bookmarks: {total}")
-    click.echo(f"  Dead links: {dead}")
-
-
-@cli.command()
-@click.option("--host", type=str, default=None, help="Server host")
-@click.option("--port", type=int, default=None, help="Server port")
-@click.pass_obj
-def serve(obj: dict[str, Any], host: str | None, port: int | None) -> None:
-    """Start local HTTP server for browser-extension ingestion."""
-    settings = obj["settings"]
-    run_server(
-        host=host or settings.server.host,
-        port=port or settings.server.port,
-    )
-
-
-@cli.command()
-@click.option("--host", type=str, default=None, help="Dashboard host")
-@click.option("--port", type=int, default=None, help="Dashboard port")
-@click.pass_obj
-def dashboard(obj: dict[str, Any], host: str | None, port: int | None) -> None:
-    """Start web dashboard for browsing bookmarks."""
-    settings = obj["settings"]
-    run_dashboard(
-        host=host or settings.dashboard.host,
-        port=port or settings.dashboard.port,
-    )
-
-
-@cli.command()
-@click.option(
-    "--vault-dir",
-    type=click.Path(path_type=Path),
-    default="output/vault",
-    help="Obsidian vault directory",
-)
-@click.option("--remote", type=str, default="origin", help="Git remote name")
-@click.option("--branch", type=str, default="main", help="Git branch name")
-def git_push(vault_dir: Path, remote: str, branch: str) -> None:
-    """Auto-commit and push Obsidian vault to git."""
-    import datetime
-    import subprocess
-
-    vault_dir = Path(vault_dir)
-    if not (vault_dir / ".git").exists():
-        click.echo(f"❌ {vault_dir} is not a git repository")
-        return
-
-    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    msg = f"vault: auto-sync {ts}"
-
-    try:
-        subprocess.run(["git", "-C", str(vault_dir), "add", "."], check=True, capture_output=True)
-        subprocess.run(
-            ["git", "-C", str(vault_dir), "commit", "-m", msg], check=True, capture_output=True
-        )
-        subprocess.run(
-            ["git", "-C", str(vault_dir), "push", remote, branch], check=True, capture_output=True
-        )
-        click.echo(f"✓ Vault synced to {remote}/{branch} at {ts}")
-    except subprocess.CalledProcessError as e:
-        click.echo(f"⚠️ Git operation failed: {e}")
-
-
-@cli.command()
-@click.argument("input_json", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default="output/tag_graph.gexf",
-    help="Output GEXF file",
-)
-def tag_graph(input_json: Path, output: Path) -> None:
-    """Build tag co-occurrence graph and export to GEXF."""
-    import itertools
-
-    data = load_json(input_json)
-    bookmarks = data.get("bookmarks", []) if isinstance(data, dict) else data
-
-    # Build co-occurrence edges
-    edges: dict[tuple[str, str], int] = {}
-    for bm in bookmarks:
-        tags = bm.get("tags", [])
-        for a, b in itertools.combinations(sorted(set(tags)), 2):
-            key = (a, b)
-            edges[key] = edges.get(key, 0) + 1
-
-    nodes = {t: t for t in sorted({t for pair in edges for t in pair})}
-    _write_gexf(output, nodes, [(a, b, w) for (a, b), w in sorted(edges.items())], directed=False)
-
-    click.echo(f"✓ Tag graph exported: {output} ({len(nodes)} nodes, {len(edges)} edges)")
-
-    click.echo(f"✓ Tag graph exported: {output} ({len(nodes)} nodes, {len(edges)} edges)")
-
-
-@cli.command()
-@click.argument("input_json", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(path_type=Path),
-    default="data/processed/crosslinked_bookmarks.json",
-)
-@click.option(
-    "--export-format",
-    "-f",
-    type=click.Choice(["json", "gexf"], case_sensitive=False),
-    default="json",
-    help="Export format for cross-links",
-)
-def crosslinks(input_json: Path, output: Path, export_format: str) -> None:
-    """Find cross-links between bookmarks and export relations."""
-
-    data = load_json(input_json)
-    bookmarks = [Bookmark.from_dict(d) for d in data]
-    bookmarks = find_crosslinks(bookmarks)
-
-    save_json(output, [bm.to_dict() for bm in bookmarks])
-    total = sum(len(bm.related_ids) for bm in bookmarks)
-    click.echo(f"✓ Cross-links: {total} relations → {output}")
-
-    if export_format == "gexf":
-        gexf_path = output.with_suffix(".gexf")
-        nodes = {bm.id: bm.title for bm in bookmarks}
-        edge_iter: Iterable[tuple[str, str]] = (
-            (bm.id, rid) for bm in bookmarks for rid in bm.related_ids
-        )
-        _write_gexf(gexf_path, nodes, edge_iter, directed=True)
-        click.echo(f"✓ Cross-link GEXF → {gexf_path}")
-        click.echo(f"✓ Cross-link GEXF → {gexf_path}")
+# Register subgroups and sibling-module commands onto the top-level group.
+cli.add_command(export)
+cli.add_command(tag_graph)
+cli.add_command(crosslinks)
+cli.add_command(pipeline)
+cli.add_command(config_cmd)
+cli.add_command(migrate_db)
+cli.add_command(db_status)
+cli.add_command(serve_cmd)
+cli.add_command(dashboard_cmd)
+cli.add_command(git_push)
 
 
 def main() -> None:
