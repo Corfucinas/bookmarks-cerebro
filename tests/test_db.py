@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import sqlalchemy as sa
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -197,3 +198,17 @@ def test_search_bookmarks_fts_by_description(db_session):
     results = search_bookmarks_fts(db_session, "asynchronous")
     assert len(results) == 1
     assert results[0].id == "fts-desc"
+
+
+def test_wal_mode_enabled(tmp_path: Path) -> None:
+    """get_session must enable WAL journal_mode for SQLite file URLs (concurrent safety)."""
+    # Arrange - file-based SQLite (WAL is meaningful for files, not :memory:)
+    db_file = tmp_path / "test.db"
+    db_url = f"sqlite:///{db_file}"
+
+    # Act - open a session (triggers create_engine + PRAGMA in fixed version)
+    with get_session(db_url) as session:
+        mode = session.execute(sa.text("PRAGMA journal_mode")).scalar()
+
+    # Assert - WAL mode must be active for concurrent dashboard + server access
+    assert mode == "wal", f"Expected journal_mode=wal, got {mode!r}"

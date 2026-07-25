@@ -24,8 +24,15 @@ def get_session(db_url: str | None = None) -> Generator[Session, None, None]:
     working directory is used.
     """
     url = db_url or _default_db_url()
-    engine = sa.create_engine(url, future=True)
+    is_sqlite = url.startswith("sqlite")
+    is_memory = url == "sqlite:///:memory:"
+    connect_args = {"check_same_thread": False} if is_sqlite and not is_memory else {}
+    engine = sa.create_engine(url, future=True, connect_args=connect_args)
     create_tables(engine)
+    if is_sqlite and not is_memory:
+        with engine.connect() as conn:
+            conn.execute(sa.text("PRAGMA journal_mode=WAL"))
+            conn.commit()
     factory = sessionmaker(bind=engine)
     session = factory()
     try:
