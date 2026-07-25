@@ -11,12 +11,17 @@ from src.cerebro.models import Bookmark
 logger = logging.getLogger("cerebro")
 
 
+def _normalize_url_for_match(url: str) -> str:
+    """Normalize URL for mention matching: strip protocol, www, trailing slash."""
+    return re.sub(r"^https?://(www\.)?", "", url).rstrip("/")
+
+
 def find_crosslinks(bookmarks: list[Bookmark]) -> list[Bookmark]:
     """Find related bookmarks by URL mentions, shared domain, shared tags, and category overlap.
 
     Populates `related_ids` on each bookmark.
     """
-    url_to_id = {bm.url: bm.id for bm in bookmarks}
+    url_to_id = {_normalize_url_for_match(bm.url): bm.id for bm in bookmarks}
     domain_groups: dict[str, list[str]] = defaultdict(list)
     tag_groups: dict[str, list[str]] = defaultdict(list)
     cat_groups: dict[str, list[str]] = defaultdict(list)
@@ -37,7 +42,7 @@ def find_crosslinks(bookmarks: list[Bookmark]) -> list[Bookmark]:
     for bm in bookmarks:
         text = f"{bm.title} {bm.description}"
         for match in url_pattern.findall(text):
-            target_id = url_to_id.get(match)
+            target_id = url_to_id.get(_normalize_url_for_match(match))
             if target_id and target_id != bm.id:
                 related[bm.id].add(target_id)
 

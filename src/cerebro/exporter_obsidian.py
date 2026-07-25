@@ -133,7 +133,10 @@ def export_obsidian(
     count = 0
     total = len(bookmarks)
     for bm in bookmarks:
-        cat_dir = vault_dir / "/".join(bm.category_breadcrumbs)
+        safe_parts = [
+            p for p in bm.category_breadcrumbs if p and p != ".." and not p.startswith("/")
+        ]
+        cat_dir = vault_dir / "/".join(safe_parts) if safe_parts else vault_dir
         ensure_dir(cat_dir)
 
         related: list[tuple[Bookmark, str]] = []
@@ -156,7 +159,6 @@ def export_obsidian(
                         related.append((r, "Bookmarked together"))
                         related_ids.add(r.id)
         related = related[:max_related]
-        bm.related_ids = list(related_ids)
 
         front = _frontmatter(bm)
         body = _markdown_body(bm, related)

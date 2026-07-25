@@ -110,3 +110,19 @@ def test_bookmark_not_related_to_self():
 
     assert "a" not in result[0].related_ids
     assert result[0].related_ids == []
+
+
+def test_crosslinks_url_mention_normalization():
+    """URL mention matching should normalize trailing slash / protocol / www."""
+    # b1's URL has no trailing slash; b2's description mentions it WITH trailing slash
+    b1 = _bm("a", "https://docs.rs/tokio", "Tokio Docs")
+    b2 = _bm(
+        "b",
+        "https://blog.x.com/post",
+        "Great post",
+        description="See https://docs.rs/tokio/ for the docs",
+    )
+
+    result = find_crosslinks([b1, b2])
+
+    assert "a" in result[1].related_ids, "b2 should link to b1 despite trailing-slash mismatch"
