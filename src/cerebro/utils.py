@@ -37,7 +37,10 @@ def safe_filename(text: str, max_length: int = 100) -> str:
     """Create filesystem-safe filename."""
     text = re.sub(r"[^\w\s.-]", "", text)
     text = re.sub(r"[\s_]+", "-", text.strip())
-    return text[:max_length].rstrip(".")
+    text = text[:max_length].rstrip(".")
+    if not text or set(text) == {"-"}:
+        return "untitled"
+    return text
 
 
 def epoch_to_iso(epoch_str: str | int | None) -> str | None:
@@ -55,8 +58,13 @@ def epoch_to_iso(epoch_str: str | int | None) -> str | None:
 
 
 def compute_id(url: str, title: str) -> str:
-    """Deterministic bookmark ID from URL + title."""
-    return hashlib.sha256(f"{url}::{title}".encode()).hexdigest()[:16]
+    """Deterministic bookmark ID from URL + title.
+
+    Uses a length-prefixed encoding so that url and title cannot collide
+    via the ``::`` separator (``url='a::b', title='c'`` vs ``url='a', title='b::c'``).
+    """
+    payload = f"{len(url)}:{url}::{len(title)}:{title}"
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
 def load_json(path: Path) -> Any:
@@ -101,10 +109,86 @@ def extract_domain(url: str) -> str:
         return ""
 
 
+_MULTIPART_TLD_SUFFIXES: frozenset[str] = frozenset(
+    {
+        "co.uk",
+        "com.au",
+        "co.jp",
+        "co.nz",
+        "com.br",
+        "co.in",
+        "com.mx",
+        "co.kr",
+        "com.cn",
+        "org.uk",
+        "ac.uk",
+        "gov.uk",
+        "co.za",
+        "com.sg",
+        "co.id",
+        "com.hk",
+        "com.tw",
+        "co.th",
+        "com.my",
+        "co.il",
+        "com.ar",
+        "com.co",
+        "co.pe",
+        "com.ng",
+        "co.ke",
+        "com.eg",
+        "com.pk",
+        "com.bd",
+        "com.tr",
+        "com.vn",
+        "co.ph",
+        "com.sa",
+        "net.au",
+        "org.au",
+        "edu.au",
+        "co.hu",
+        "co.at",
+        "co.no",
+        "co.se",
+        "co.dk",
+        "co.fi",
+        "co.pl",
+        "co.gr",
+        "co.pt",
+        "co.it",
+        "co.es",
+        "co.fr",
+        "co.de",
+        "co.nl",
+        "co.be",
+        "co.ch",
+        "co.cz",
+        "co.sk",
+        "co.ro",
+        "co.bg",
+        "co.hr",
+        "co.rs",
+        "co.si",
+        "co.lt",
+        "co.lv",
+        "co.ee",
+        "co.ie",
+    }
+)
+
+
 def extract_tld_plus_one(url: str) -> str:
-    """Extract registered domain (e.g. github.com)."""
+    """Extract registered domain (e.g. github.com).
+
+    Handles multi-part TLD suffixes such as ``co.uk`` and ``com.au`` so that
+    ``www.google.co.uk`` returns ``google.co.uk`` rather than ``co.uk``.
+    """
     domain = extract_domain(url)
     parts = domain.split(".")
+    if len(parts) >= 3:
+        candidate_suffix = ".".join(parts[-2:])
+        if candidate_suffix in _MULTIPART_TLD_SUFFIXES:
+            return ".".join(parts[-3:])
     if len(parts) >= 2:
         return ".".join(parts[-2:])
     return domain
