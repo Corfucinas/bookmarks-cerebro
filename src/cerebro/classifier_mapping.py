@@ -100,14 +100,40 @@ RAW_FOLDER_MAPPINGS: dict[str, list[str]] = {
 }
 
 
+# Pre-sort patterns by length DESCENDING so more specific (longer)
+# patterns are checked before their prefixes (e.g. 'coding/linux/security'
+# before 'coding/linux').
+# A pattern matches the raw path only as a path-segment prefix, i.e.:#   - pattern == raw_lower (exact), OR
+#   - raw_lower starts with pattern + '/' (pattern is a parent segment), OR
+#   - raw_lower contains '/' + pattern as a full segment (boundary on both sides).
+# This prevents substring false positives like 'arch' matching 'architecture'.
+_SORTED_PATTERNS: list[tuple[str, list[str]]] = sorted(
+    RAW_FOLDER_MAPPINGS.items(), key=lambda kv: len(kv[0]), reverse=True
+)
+
+
+def _pattern_matches(pattern: str, raw_lower: str) -> bool:
+    """True if pattern appears as a full path-segment prefix of raw_lower."""
+    if raw_lower == pattern:
+        return True
+    if raw_lower.startswith(pattern + "/"):
+        return True
+    # pattern appears as a later full segment: '/pattern' at end or '/pattern/'
+    return ("/" + pattern) in raw_lower and (
+        raw_lower.endswith("/" + pattern) or ("/" + pattern + "/") in raw_lower
+    )
+
+
 def map_raw_folder(raw_path: str) -> list[str] | None:
     """Map old folder paths to new taxonomy.
 
-    Performs case-insensitive substring matching against RAW_FOLDER_MAPPINGS.
-    Returns the first matching category breadcrumbs, or None if no match.
+    Performs case-insensitive path-segment matching against
+    RAW_FOLDER_MAPPINGS, preventing substring false positives
+    (e.g. 'arch' no longer matches 'architecture'). Returns the first
+    (most specific) matching category breadcrumbs, or None if no match.
     """
     raw_lower = raw_path.lower()
-    for pattern, breadcrumbs in RAW_FOLDER_MAPPINGS.items():
-        if pattern in raw_lower:
+    for pattern, breadcrumbs in _SORTED_PATTERNS:
+        if _pattern_matches(pattern, raw_lower):
             return breadcrumbs
     return None
