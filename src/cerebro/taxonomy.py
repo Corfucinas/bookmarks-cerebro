@@ -56,7 +56,7 @@ class TaxonomyNode:
 def load_taxonomy(path: Path | str) -> TaxonomyNode:
     path = Path(path)
     with open(path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+        data = yaml.safe_load(f) or {}
 
     root_data = data.get("roots", [])
     virtual_root = TaxonomyNode(name="__root__", description="Virtual root")
