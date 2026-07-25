@@ -158,7 +158,6 @@ class CerebroHandler(BaseHTTPRequestHandler):
         output = self.html_output
         assert output is not None
         if not self.json_output or not self.json_output.exists():
-            export_html([Bookmark(id="x", url="", title="")], output)
             return
         data = load_json(self.json_output)
         bookmarks = [Bookmark.from_dict(d) for d in data]
@@ -194,3 +193,5 @@ def run_server(
     except KeyboardInterrupt:
         logger.info("Server shutting down...")
         server.shutdown()
+    finally:
+        server.server_close()

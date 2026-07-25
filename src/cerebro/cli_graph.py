@@ -9,12 +9,18 @@ from __future__ import annotations
 import itertools
 from collections.abc import Iterable
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 import click
 
 from src.cerebro.crosslinks import find_crosslinks
 from src.cerebro.models import Bookmark
 from src.cerebro.utils import load_json, save_json
+
+
+def _attr(value: str) -> str:
+    """Escape a string for use as an XML attribute value (escapes quotes too)."""
+    return escape(value, {'"': "&quot;"})
 
 
 def _write_gexf(
@@ -48,14 +54,16 @@ def _write_gexf(
         f.write(f'  <graph mode="static" defaultedgetype="{edge_type}">\n')
         f.write(f'    <nodes count="{len(nodes)}">\n')
         for nid, label in nodes.items():
-            f.write(f'      <node id="{nid}" label="{label}" />\n')
+            f.write(f'      <node id="{_attr(nid)}" label="{_attr(label)}" />\n')
         f.write("    </nodes>\n")
         f.write(f'    <edges count="{len(edge_list)}">\n')
         for src, tgt, weight in edge_list:
             if weight is not None:
-                f.write(f'      <edge source="{src}" target="{tgt}" weight="{weight}" />\n')
+                f.write(
+                    f'      <edge source="{_attr(src)}" target="{_attr(tgt)}" weight="{_attr(weight)}" />\n'
+                )
             else:
-                f.write(f'      <edge source="{src}" target="{tgt}" />\n')
+                f.write(f'      <edge source="{_attr(src)}" target="{_attr(tgt)}" />\n')
         f.write("    </edges>\n")
         f.write("  </graph>\n")
         f.write("</gexf>\n")
