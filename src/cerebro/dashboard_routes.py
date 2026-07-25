@@ -19,7 +19,7 @@ from fastapi.templating import Jinja2Templates
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy.orm import Session
 
-from src.cerebro.config import load_settings
+from src.cerebro.config import Settings, load_settings
 from src.cerebro.db import (
     append_bookmark_tags,
     count_bookmarks,
@@ -34,18 +34,22 @@ from src.cerebro.db import (
 )
 from src.cerebro.models import Bookmark
 from src.cerebro.security import sanitize_ingest_payload
-from src.cerebro.utils import compute_id
+from src.cerebro.utils import compute_id, extract_domain, extract_tld_plus_one
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "dashboard_templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 PER_PAGE = 50
 
+_settings_cache: Settings | None = None
+
 
 def get_db() -> Generator[Session, None, None]:
     """Dependency that yields a database session."""
-    settings = load_settings()
-    with get_session(settings.db_url) as session:
+    global _settings_cache
+    if _settings_cache is None:
+        _settings_cache = load_settings()
+    with get_session(_settings_cache.db_url) as session:
         yield session
 
 
@@ -272,8 +276,8 @@ def _register(app: FastAPI) -> None:  # noqa: C901 - route registration is inher
             title=sanitized["title"],
             tags=sanitized["tags"],
             description=sanitized["description"],
-            domain="",
-            tld_plus_one="",
+            domain=extract_domain(sanitized["url"]),
+            tld_plus_one=extract_tld_plus_one(sanitized["url"]),
             category_breadcrumbs=[],
             confidence_score=0.0,
         )

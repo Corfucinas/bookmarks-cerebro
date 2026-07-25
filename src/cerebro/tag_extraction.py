@@ -191,16 +191,21 @@ STOP_WORDS = {
 }
 
 CATEGORY_TAGS = {
-    "AI/ML": ["ai", "machine-learning", "ml"],
+    "AI": ["ai", "machine-learning", "ml"],
+    "Data": ["data", "analytics"],
     "Programming": ["programming", "software"],
+    "Web": ["web", "frontend"],
     "Systems": ["infrastructure", "systems"],
-    "Design": ["design", "frontend"],
-    "Research": ["research", "learning"],
-    "Productivity": ["productivity", "tools"],
-    "Finance": ["finance", "trading"],
-    "Life": ["life", "personal"],
+    "Security": ["security", "infosec"],
+    "Quant": ["quant", "trading"],
+    "Blockchain": ["blockchain", "crypto"],
     "Hardware": ["hardware", "iot"],
     "Career": ["career", "professional"],
+    "Learning": ["learning", "research"],
+    "Design": ["design", "ui"],
+    "Productivity": ["productivity", "tools"],
+    "Life": ["life", "personal"],
+    "Entertainment": ["entertainment", "media"],
     "Reference": ["reference", "utility"],
 }
 
@@ -217,7 +222,7 @@ def extract_tags(bookmark: Bookmark) -> list[str]:
             tags.add(bookmark.category_breadcrumbs[-1].lower().replace(" ", "-"))
 
     text = f"{bookmark.title} {bookmark.url}".lower()
-    words = re.findall(r"[a-zA-Z]+(?:-[a-zA-Z]+)*", text)
+    words = re.findall(r"[^\W\d_]+(?:-[^\W\d_]+)*", text)
     for word in words:
         word = word.strip("-").lower()
         if len(word) > 2 and word not in STOP_WORDS and not word.isdigit():
@@ -227,7 +232,7 @@ def extract_tags(bookmark: Bookmark) -> list[str]:
     if domain:
         tags.add(domain.split(".")[0])
 
-    path_parts = re.findall(r"/([a-zA-Z-]+)", bookmark.url)
+    path_parts = re.findall(r"/([^\W\d_]+(?:-[^\W\d_]+)*)", bookmark.url)
     for part in path_parts:
         part = part.lower().strip("-")
         if len(part) > 2 and part not in STOP_WORDS:

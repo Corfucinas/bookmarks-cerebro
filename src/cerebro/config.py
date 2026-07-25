@@ -78,7 +78,10 @@ def load_settings(path: Path | str | None = None) -> Settings:
         return Settings()
 
     raw = path.read_text(encoding="utf-8")
-    data = tomllib.loads(raw)
+    try:
+        data = tomllib.loads(raw)
+    except tomllib.TOMLDecodeError as e:
+        raise ValueError(f"Invalid TOML in {path}: {e}") from e
     return _build_settings(data)
 
 

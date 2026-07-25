@@ -150,10 +150,10 @@ def test_extract_tags_adds_category_tags():
     bm = _bm(
         title="Some Article",
         url="https://example.com/article",
-        category_breadcrumbs=["AI/ML", "Deep Learning"],
+        category_breadcrumbs=["AI", "Deep Learning"],
     )
     tags = extract_tags(bm)
-    # "machine-learning" is the only CATEGORY_TAGS["AI/ML"] entry with len > 2
+    # "machine-learning" is the only CATEGORY_TAGS["AI"] entry with len > 2
     assert "machine-learning" in tags
     # "ai" and "ml" are 2 chars each, filtered by len(t) > 2
     assert "ai" not in tags
@@ -228,3 +228,42 @@ def test_extract_tags_filters_short_words():
     # "go" is 2 chars -> excluded; "is", "a" are stop words
     assert "go" not in tags
     assert "language" in tags
+
+
+# ---------------------------------------------------------------------------
+# 5. CATEGORY_TAGS keys must match actual taxonomy top-level names
+# ---------------------------------------------------------------------------
+def test_category_tags_match_taxonomy():
+    """AI category_breadcrumbs[0] must trigger CATEGORY_TAGS['AI'] entries.
+
+    Bug: CATEGORY_TAGS had key 'AI/ML' but taxonomy top-level is 'AI',
+    so category-derived tags were silently dropped for AI bookmarks.
+    """
+    bm = _bm(
+        title="Some Neutral Title",
+        url="https://example.com/article",
+        category_breadcrumbs=["AI", "Deep-Learning"],
+    )
+    tags = extract_tags(bm)
+    assert "machine-learning" in tags, (
+        f"Expected 'machine-learning' in tags for AI category, got {tags}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 6. extract_tags must extract non-ASCII (unicode) words
+# ---------------------------------------------------------------------------
+def test_extract_tags_unicode():
+    """Non-ASCII words in title must be extracted as tags.
+
+    Bug: regex `[a-zA-Z]+` only matches ASCII letters, dropping words like
+    'cafe', 'resumee', 'tutorial'. Use unicode-aware regex instead.
+    """
+    bm = _bm(
+        title="café résumé tutorial",
+        url="https://example.com/neutral-path",
+    )
+    tags = extract_tags(bm)
+    assert any(t in {"café", "résumé"} for t in tags), (
+        f"Expected at least one unicode word ('café' or 'résumé') in tags, got {tags}"
+    )

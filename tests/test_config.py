@@ -48,3 +48,14 @@ def test_db_url_uses_absolute_path(tmp_path, monkeypatch):
     settings = load_settings(config_path)
     assert settings.db_url.startswith("sqlite:///")
     assert "test.db" in settings.db_url
+
+
+def test_load_settings_malformed_toml(tmp_path):
+    """Malformed TOML should raise a clear ValueError mentioning the file path."""
+    import pytest
+
+    config_path = tmp_path / ".cerebro.toml"
+    config_path.write_text("key = ", encoding="utf-8")  # no value
+
+    with pytest.raises(ValueError, match=str(config_path)):
+        load_settings(config_path)

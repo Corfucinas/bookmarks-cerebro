@@ -1,5 +1,6 @@
 """Tests for FastAPI dashboard endpoints."""
 
+import contextlib
 import sys
 import tempfile
 from pathlib import Path
@@ -303,7 +304,57 @@ def test_api_ingest_response_fields_and_persistence(db_session, test_client):
     assert persisted.description == description
     assert persisted.id == expected_id
     # Default fields set by the endpoint
-    assert persisted.domain == ""
+    assert persisted.domain == "example.com"
     assert persisted.category_breadcrumbs == []
     assert persisted.confidence_score == 0.0
     assert persisted.is_dead_link is False
+
+
+def test_get_db_caches_settings(db_session):
+    """get_db() must call load_settings() only once across multiple invocations."""
+    from unittest.mock import patch
+
+    import cerebro.dashboard_routes as routes
+    from cerebro.config import Settings
+
+    # Reset module-level cache before test
+    routes._settings_cache = None
+
+    with patch("cerebro.dashboard_routes.load_settings", return_value=Settings()) as mock_load:
+        # Drive get_db twice as a generator
+        gen1 = routes.get_db()
+        next(gen1)
+        with contextlib.suppress(StopIteration):
+            next(gen1)
+
+        gen2 = routes.get_db()
+        next(gen2)
+        with contextlib.suppress(StopIteration):
+            next(gen2)
+
+        assert mock_load.call_count == 1, f"Expected 1 call, got {mock_load.call_count}"
+
+    # Cleanup
+    routes._settings_cache = None
+
+
+def test_ingest_sets_domain(db_session, test_client):
+    """POST /api/ingest must set domain and tld_plus_one from the URL (not leave them empty)."""
+    from cerebro.utils import compute_id, extract_domain, extract_tld_plus_one
+
+    url = "https://docs.example.com/ingest-domain-test"
+    title = "Domain Test"
+    expected_id = compute_id(url, title)
+
+    response = test_client.post(
+        "/api/ingest",
+        json={"url": url, "title": title, "tags": [], "description": ""},
+    )
+    assert response.status_code == 201
+
+    persisted = get_bookmark(db_session, expected_id)
+    assert persisted is not None
+    assert persisted.domain == extract_domain(url)
+    assert persisted.tld_plus_one == extract_tld_plus_one(url)
+    assert persisted.domain != "", "domain must not be empty"
+    assert persisted.tld_plus_one != "", "tld_plus_one must not be empty"
