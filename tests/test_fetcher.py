@@ -261,3 +261,213 @@ def test_fetch_page_non_html_content_returns_early():
     assert result["is_soft_dead"] is False
     # No GET was attempted
     assert result["title"] is None
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage: _is_dead / _is_soft_dead / SSL / _read_body
+# ---------------------------------------------------------------------------
+def test_is_dead_various_statuses():
+    """Verify _is_dead across boundary statuses."""
+    assert _is_dead(404) is True
+    assert _is_dead(410) is True
+    assert _is_dead(500) is True
+    assert _is_dead(200) is False
+    assert _is_dead(None) is True
+    assert _is_dead(301) is False
+
+
+def test_is_soft_dead_various_statuses():
+    """Verify _is_soft_dead across boundary statuses."""
+    assert _is_soft_dead(401) is True
+    assert _is_soft_dead(403) is True
+    assert _is_soft_dead(429) is True
+    assert _is_soft_dead(200) is False
+    assert _is_soft_dead(None) is False
+
+
+def test_create_ssl_context_is_permissive():
+    """_create_ssl_context disables hostname check and cert verification."""
+    import ssl
+
+    from cerebro.fetcher import _create_ssl_context
+
+    actual = _create_ssl_context()
+    assert isinstance(actual, ssl.SSLContext)
+    assert actual.check_hostname is False
+    assert actual.verify_mode == ssl.CERT_NONE
+
+
+def test_read_body_empty_returns_empty_string():
+    """_read_body returns '' when response body is empty."""
+    from cerebro.fetcher import _read_body
+
+    resp = MagicMock()
+    resp.read.return_value = b""
+    resp.headers = {"Content-Type": "text/html; charset=utf-8"}
+    assert _read_body(resp) == ""
+
+
+def test_read_body_with_charset_extracts_encoding():
+    """_read_body parses charset from Content-Type and decodes accordingly."""
+    from cerebro.fetcher import _read_body
+
+    resp = MagicMock()
+    resp.read.return_value = "héllo".encode("latin-1")
+    resp.headers = {"Content-Type": "text/html; charset=latin-1"}
+    body = _read_body(resp)
+    assert body == "héllo"
+
+
+def test_read_body_decode_error_returns_empty():
+    """_read_body returns '' when decode raises ValueError (caught by except)."""
+    from cerebro.fetcher import _read_body
+
+    class BadBytes(bytes):
+        def decode(self, encoding: str = ..., errors: str = ...) -> str:
+            raise ValueError("simulated")
+
+    resp = MagicMock()
+    resp.read.return_value = BadBytes(b"")
+    resp.headers = {"Content-Type": "text/html; charset=utf-8"}
+    assert _read_body(resp) == ""
+
+
+def test_fetch_page_head_retry_then_success():
+    """HEAD returns None twice then succeeds — retry loop is exercised."""
+    head_ok = _make_head_mock(200, content_type="application/pdf")
+    with (
+        patch("cerebro.fetcher.urllib.request.urlopen", side_effect=[None, None, head_ok]),
+        patch("cerebro.fetcher.time.sleep"),
+    ):
+        result = _fetch_page("https://example.com/retry")
+    assert result["status"] == 200
+    assert result["is_dead"] is False
+
+
+def test_fetch_page_get_retry_then_success():
+    """HEAD soft-dead 403; first GET None, second HTTPError(403) -> status set."""
+    http_err = _make_http_error(403)
+    # HEAD raises HTTPError(403) -> returned (not None), HEAD loop breaks.
+    # GET: first None (URLError), second raises HTTPError(403).
+    with (
+        patch("cerebro.fetcher.urllib.request.urlopen", side_effect=[http_err, None, http_err]),
+        patch("cerebro.fetcher.time.sleep"),
+    ):
+        result = _fetch_page("https://example.com/forbidden-retry")
+    assert result["status"] == 403
+    assert result["is_soft_dead"] is True
+
+
+def test_fetch_page_get_non_html_returns_early():
+    """200 HEAD + 200 GET with application/pdf — returns without parsing body."""
+    head_mock = _make_head_mock(200)
+    get_mock = _make_get_mock(200, b"%PDF-1.4", content_type="application/pdf")
+    with patch("cerebro.fetcher.urllib.request.urlopen", side_effect=[head_mock, get_mock]):
+        result = _fetch_page("https://example.com/doc.pdf")
+    assert result["status"] == 200
+    assert result["is_dead"] is False
+    assert result["title"] is None
+
+
+def test_fetch_page_empty_body_sets_error():
+    """200 GET with empty body -> result['error'] == 'Empty body'."""
+    head_mock = _make_head_mock(200)
+    get_mock = _make_get_mock(200, b"")
+    with patch("cerebro.fetcher.urllib.request.urlopen", side_effect=[head_mock, get_mock]):
+        result = _fetch_page("https://example.com/empty")
+    assert result["status"] == 200
+    assert result["is_dead"] is False
+    assert result["error"] == "Empty body"
+
+
+def test_fetch_page_all_get_attempts_failed():
+    """HEAD soft-dead 403 + GET always None -> error 'All GET attempts failed'."""
+    http_err = _make_http_error(403)
+    with (
+        patch("cerebro.fetcher.urllib.request.urlopen", side_effect=[http_err, None, None]),
+        patch("cerebro.fetcher.time.sleep"),
+    ):
+        result = _fetch_page("https://example.com/always-fail")
+    assert result["status"] == 403
+    assert result["is_soft_dead"] is True
+    assert result["error"] == "All GET attempts failed"
+
+
+def test_fetch_page_attribute_error_status_zero():
+    """Response without getcode() -> status defaults to 0."""
+    head_mock = MagicMock()
+    head_mock.getcode.side_effect = AttributeError("no getcode")
+    head_mock.headers = {"Content-Type": "text/html"}
+    get_mock = MagicMock()
+    get_mock.getcode.side_effect = AttributeError("no getcode")
+    get_mock.headers = {"Content-Type": "text/html"}
+    get_mock.read.return_value = MINIMAL_HTML
+    with patch("cerebro.fetcher.urllib.request.urlopen", side_effect=[head_mock, get_mock]):
+        result = _fetch_page("https://example.com/no-getcode")
+    assert result["status"] == 0
+    assert result["is_dead"] is False
+
+
+# ---------------------------------------------------------------------------
+# fetch_bookmarks — integration with mocked _fetch_page
+# ---------------------------------------------------------------------------
+def test_fetch_bookmarks_empty_input_returns_empty():
+    """Empty bookmark list -> returns empty list without spawning workers."""
+    from cerebro.fetcher import fetch_bookmarks
+
+    assert fetch_bookmarks([]) == []
+
+
+def test_fetch_bookmarks_marks_dead():
+    """Dead _fetch_page result sets is_dead_link=True on the bookmark."""
+    from cerebro.fetcher import fetch_bookmarks
+    from cerebro.models import Bookmark
+
+    bm = Bookmark(id="dead-1", title="Dead", url="https://example.com/dead")
+    dead_result = {"status": 404, "is_dead": True, "is_soft_dead": False}
+    with patch("cerebro.fetcher._fetch_page", return_value=dead_result):
+        result = fetch_bookmarks([bm], max_workers=1)
+    assert len(result) == 1
+    assert result[0].is_dead_link is True
+    assert result[0].http_status == 404
+    assert result[0].fetched_metadata == dead_result
+
+
+def test_fetch_bookmarks_marks_alive_and_soft_dead():
+    """Mix of alive, dead, soft-dead bookmarks; metadata set correctly."""
+    from cerebro.fetcher import fetch_bookmarks
+    from cerebro.models import Bookmark
+
+    alive = Bookmark(id="a1", title="Alive", url="https://example.com/alive")
+    soft = Bookmark(id="s1", title="Soft", url="https://example.com/soft")
+    dead = Bookmark(id="d1", title="Dead", url="https://example.com/dead")
+
+    results = {
+        "https://example.com/alive": {"status": 200, "is_dead": False, "is_soft_dead": False},
+        "https://example.com/soft": {"status": 403, "is_dead": False, "is_soft_dead": True},
+        "https://example.com/dead": {"status": 404, "is_dead": True, "is_soft_dead": False},
+    }
+
+    def fake_fetch(url, timeout):
+        return results[url]
+
+    with patch("cerebro.fetcher._fetch_page", side_effect=fake_fetch):
+        out = fetch_bookmarks([alive, soft, dead], max_workers=1)
+
+    by_id = {b.id: b for b in out}
+    assert by_id["a1"].is_dead_link is False
+    assert by_id["s1"].is_dead_link is False
+    assert by_id["d1"].is_dead_link is True
+    assert by_id["s1"].http_status == 403
+
+
+def test_fetch_bookmarks_exception_marks_dead():
+    """Exception from _fetch_page future -> bookmark marked dead with error metadata."""
+    from cerebro.fetcher import fetch_bookmarks
+    from cerebro.models import Bookmark
+
+    bm = Bookmark(id="err-1", title="Err", url="https://example.com/err")
+    with patch("cerebro.fetcher._fetch_page", side_effect=RuntimeError("boom")):
+        out = fetch_bookmarks([bm], max_workers=1, timeout=1)
+    assert out[0].is_dead_link is True
+    assert out[0].fetched_metadata["error"] == "boom"
