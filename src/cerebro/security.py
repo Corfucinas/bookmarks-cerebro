@@ -71,6 +71,10 @@ class _RequestSizeMiddleware(BaseHTTPMiddleware):
                 )
             if size > self.max_bytes:
                 return Response(status_code=413, content=b"Payload too large")
+        elif request.method in {"POST", "PUT", "PATCH"}:
+            # Chunked transfer encoding omits Content-Length; refuse it for
+            # state-changing methods so oversized payloads cannot bypass the limit.
+            return Response(status_code=413, content=b"Payload too large")
         return await call_next(request)
 
 
@@ -90,6 +94,14 @@ class RateLimiter:
     def is_allowed(self, client_ip: str) -> bool:
         now = time.monotonic()
         window_start = now - self.window_seconds
+
+        # Lazy cleanup: drop stale buckets for inactive clients.
+        stale = [
+            key for key, bucket in self._buckets.items() if not bucket or bucket[-1] < window_start
+        ]
+        for key in stale:
+            del self._buckets[key]
+
         bucket = self._buckets.get(client_ip, deque())
 
         # Drop old entries outside the window
@@ -149,7 +161,7 @@ def add_security_middleware(app: FastAPI, cors_origins: list[str] | None = None)
     app.add_middleware(_RequestSizeMiddleware, max_bytes=MAX_CONTENT_LENGTH_BYTES)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=cors_origins or ["http://localhost:8765", "chrome-extension://*"],
+        allow_origins=cors_origins or ["*"],
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "X-Requested-With"],
         allow_credentials=False,

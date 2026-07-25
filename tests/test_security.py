@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -194,3 +194,82 @@ def test_request_size_middleware_unit():
     with TestClient(app) as client:
         response = client.post("/", headers={"Content-Length": "200"})
     assert response.status_code == 413
+
+
+def test_cors_allows_chrome_extension_origin():
+    """CORS permits chrome-extension:// origins (used by the browser extension).
+
+    Starlette's CORSMiddleware does not support `chrome-extension://*` as a
+    wildcard pattern, so the default origins must fall back to `['*']` or
+    otherwise permit extension origins.
+    """
+    app = FastAPI()
+    add_security_middleware(app)
+
+    @app.get("/ping")
+    async def ping():
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        response = client.get("/ping", headers={"Origin": "chrome-extension://abc123"})
+    assert response.status_code == 200
+    assert response.headers.get("Access-Control-Allow-Origin") is not None
+
+
+def test_rate_limiter_cleans_empty_buckets():
+    """RateLimiter removes buckets for clients whose entries have expired."""
+    limiter = RateLimiter(max_requests=5, window_seconds=1)
+    assert limiter.is_allowed("X")
+    assert "X" in limiter._buckets
+
+    # Wait past the window so X's entry is stale.
+    import time as _time
+
+    _time.sleep(1.1)
+
+    # A different client triggers cleanup; X's stale bucket should be reclaimed.
+    assert limiter.is_allowed("Y")
+    assert "X" not in limiter._buckets
+
+
+def test_request_size_rejects_chunked_encoding():
+    """_RequestSizeMiddleware rejects state-changing requests with no Content-Length.
+
+    Chunked transfer encoding omits Content-Length, which would otherwise bypass
+    the size limit. The middleware must refuse such requests with 413.
+    """
+    from starlette.requests import Request as StarletteRequest
+
+    app = FastAPI()
+    app.add_middleware(_RequestSizeMiddleware, max_bytes=100)
+
+    @app.post("/upload")
+    async def upload():
+        return {"ok": True}
+
+    # Build a mock ASGI request with no Content-Length header (chunked encoding).
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/upload",
+        "headers": [],  # no content-length
+        "query_string": b"",
+        "client": ("127.0.0.1", 1234),
+        "server": ("testserver", 80),
+        "scheme": "http",
+    }
+
+    async def receive():
+        return {"type": "http.request", "body": b"x" * 1000, "more_body": False}
+
+    request = StarletteRequest(scope, receive)
+    middleware = _RequestSizeMiddleware(app, max_bytes=100)
+
+    async def call_next(req):
+        return Response(content=b"ok")
+
+    import asyncio
+
+    response = asyncio.run(middleware.dispatch(request, call_next))
+    assert response.status_code == 413
+    assert b"Payload too large" in response.body
