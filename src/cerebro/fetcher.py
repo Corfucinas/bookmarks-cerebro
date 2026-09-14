@@ -110,6 +110,64 @@ def _extract_og_tags(soup: BeautifulSoup) -> dict[str, str | None]:
     return og
 
 
+def _retry_request(fetch_fn: Any, url: str, timeout: int, retries: int) -> Any:
+    """Retry a fetch call up to `retries` times. Returns first non-None response or None."""
+    resp = None
+    for attempt in range(retries):
+        resp = fetch_fn(url, timeout)
+        if resp is not None:
+            break
+        if attempt < retries - 1:
+            time.sleep(1)
+    return resp
+
+
+def _classify_head(head_resp: Any, result: dict[str, Any]) -> bool:
+    """Classify HEAD response, mutating `result` in place.
+
+    Returns True if the caller should proceed to GET, False to return early.
+    """
+    if head_resp is None:
+        return True
+    try:
+        status = head_resp.getcode()
+    except AttributeError:
+        status = 0
+    result["status"] = status
+    if _is_dead(status):
+        result["is_dead"] = True
+        return False
+    if _is_soft_dead(status):
+        result["is_soft_dead"] = True
+        return True
+    content_type = head_resp.headers.get("Content-Type", "")
+    if "text/html" not in content_type:
+        result["is_dead"] = False
+        return False
+    return True
+
+
+def _parse_html_metadata(html: str, url: str) -> dict[str, Any]:
+    """Parse HTML to extract OG tags, title, and canonical URL."""
+    soup = BeautifulSoup(html, "html.parser")
+    og = _extract_og_tags(soup)
+    title_tag = soup.find("title")
+    title = title_tag.get_text(strip=True) if title_tag else None
+    canonical = soup.find("link", attrs={"rel": "canonical"})
+    if isinstance(canonical, Tag) and canonical.attrs.get("href"):
+        canonical_url: str | None = str(canonical.attrs["href"])
+    else:
+        canonical_url = url
+    return {
+        "og_title": og.get("title"),
+        "og_description": og.get("description"),
+        "og_image": og.get("image"),
+        "og_type": og.get("type"),
+        "title": title,
+        "canonical_url": canonical_url,
+    }
+
+
 def _fetch_page(url: str, timeout: int = DEFAULT_TIMEOUT) -> dict[str, Any]:
     """Fetch URL: HEAD first, then GET for HTML. Returns metadata dict."""
     result: dict[str, Any] = {
@@ -126,78 +184,37 @@ def _fetch_page(url: str, timeout: int = DEFAULT_TIMEOUT) -> dict[str, Any]:
         "error": None,
     }
 
-    head_resp = None
-    for attempt in range(RETRIES):
-        head_resp = _fetch_head(url, timeout)
-        if head_resp is not None:
-            break
-        if attempt < RETRIES - 1:
-            time.sleep(1)
-
-    if head_resp is not None:
-        try:
-            status = head_resp.getcode()
-        except AttributeError:
-            status = 0
-        result["status"] = status
-        if _is_dead(status):
-            result["is_dead"] = True
-            return result
-        if _is_soft_dead(status):
-            result["is_soft_dead"] = True
-        else:
-            content_type = head_resp.headers.get("Content-Type", "")
-            if "text/html" not in content_type:
-                result["is_dead"] = False
-                return result
-
-    for attempt in range(RETRIES):
-        get_resp = _fetch_get(url, timeout)
-        if get_resp is None:
-            if attempt < RETRIES - 1:
-                time.sleep(1)
-            continue
-
-        try:
-            status = get_resp.getcode()
-        except AttributeError:
-            status = 0
-        result["status"] = status
-        result["is_dead"] = _is_dead(status)
-        result["is_soft_dead"] = _is_soft_dead(status)
-
-        if status >= 400:
-            return result
-
-        content_type = get_resp.headers.get("Content-Type", "")
-        if "text/html" not in content_type:
-            result["is_dead"] = False
-            return result
-
-        html = _read_body(get_resp)
-        if not html:
-            result["error"] = "Empty body"
-            return result
-
-        soup = BeautifulSoup(html, "html.parser")
-        og = _extract_og_tags(soup)
-        result["og_title"] = og.get("title")
-        result["og_description"] = og.get("description")
-        result["og_image"] = og.get("image")
-        result["og_type"] = og.get("type")
-
-        title_tag = soup.find("title")
-        result["title"] = title_tag.get_text(strip=True) if title_tag else None
-
-        canonical = soup.find("link", attrs={"rel": "canonical"})
-        if isinstance(canonical, Tag) and canonical.attrs.get("href"):
-            result["canonical_url"] = canonical.attrs["href"]
-        else:
-            result["canonical_url"] = url
-
+    head_resp = _retry_request(_fetch_head, url, timeout, RETRIES)
+    if not _classify_head(head_resp, result):
         return result
 
-    result["error"] = "All GET attempts failed"
+    get_resp = _retry_request(_fetch_get, url, timeout, RETRIES)
+    if get_resp is None:
+        result["error"] = "All GET attempts failed"
+        return result
+
+    try:
+        status = get_resp.getcode()
+    except AttributeError:
+        status = 0
+    result["status"] = status
+    result["is_dead"] = _is_dead(status)
+    result["is_soft_dead"] = _is_soft_dead(status)
+
+    if status >= 400:
+        return result
+
+    content_type = get_resp.headers.get("Content-Type", "")
+    if "text/html" not in content_type:
+        result["is_dead"] = False
+        return result
+
+    html = _read_body(get_resp)
+    if not html:
+        result["error"] = "Empty body"
+        return result
+
+    result.update(_parse_html_metadata(html, url))
     return result
 
 

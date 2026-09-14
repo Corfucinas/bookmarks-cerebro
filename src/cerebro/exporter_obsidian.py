@@ -30,6 +30,52 @@ def _frontmatter(bookmark: Bookmark) -> dict[str, Any]:
     }
 
 
+def _dead_link_section(bookmark: Bookmark) -> list[str]:
+    """Build dead-link warning lines (empty when not a dead link)."""
+    if not bookmark.is_dead_link:
+        return []
+    status_str = str(bookmark.http_status) if bookmark.http_status else "unknown"
+    return ["", "> ⚠️ **Dead link detected** — HTTP status: " + status_str]
+
+
+def _duplicate_section(bookmark: Bookmark) -> list[str]:
+    """Build duplicate-group banner lines (empty when no group)."""
+    if not bookmark.duplicate_group_id:
+        return []
+    return ["", f"> 🔗 **Duplicate group:** `{bookmark.duplicate_group_id}`"]
+
+
+def _fetched_metadata_section(bookmark: Bookmark) -> list[str]:
+    """Build OG/Fetched Metadata section lines (empty when unavailable)."""
+    fm = bookmark.fetched_metadata
+    if not fm or bookmark.is_dead_link:
+        return []
+    og_title = fm.get("og_title")
+    og_image = fm.get("og_image")
+    og_type = fm.get("og_type")
+    if not (og_title or og_image or og_type):
+        return []
+    lines = ["", "## Fetched Metadata"]
+    if og_title:
+        lines.append(f"- **OG Title:** {og_title}")
+    if og_type:
+        lines.append(f"- **OG Type:** {og_type}")
+    if og_image:
+        lines.append(f"- **OG Image:** {og_image}")
+    return lines
+
+
+def _related_section(bookmark: Bookmark, related: list[tuple[Bookmark, str]]) -> list[str]:
+    """Build Related Bookmarks section lines (empty when none)."""
+    if not related:
+        return []
+    lines = ["", "## Related Bookmarks"]
+    for rel, reason in related:
+        rel_path = "/".join(rel.category_breadcrumbs)
+        lines.append(f"- [{rel.title}]({rel.safe_title}.md) — _{reason}_ — {rel_path}")
+    return lines
+
+
 def _markdown_body(bookmark: Bookmark, related: list[tuple[Bookmark, str]]) -> str:
     """Build markdown body with dead link / duplicate / OG metadata."""
     lines = [
@@ -40,38 +86,9 @@ def _markdown_body(bookmark: Bookmark, related: list[tuple[Bookmark, str]]) -> s
         "## Link",
         f"- [Open]({bookmark.url})",
     ]
-
-    if bookmark.is_dead_link:
-        status_str = str(bookmark.http_status) if bookmark.http_status else "unknown"
-        lines.extend(
-            [
-                "",
-                "> ⚠️ **Dead link detected** — HTTP status: " + status_str,
-            ]
-        )
-
-    if bookmark.duplicate_group_id:
-        lines.extend(
-            [
-                "",
-                f"> 🔗 **Duplicate group:** `{bookmark.duplicate_group_id}`",
-            ]
-        )
-
-    fm = bookmark.fetched_metadata
-    if fm and not bookmark.is_dead_link:
-        og_title = fm.get("og_title")
-        og_image = fm.get("og_image")
-        og_type = fm.get("og_type")
-        if og_title or og_image or og_type:
-            lines.extend(["", "## Fetched Metadata"])
-            if og_title:
-                lines.append(f"- **OG Title:** {og_title}")
-            if og_type:
-                lines.append(f"- **OG Type:** {og_type}")
-            if og_image:
-                lines.append(f"- **OG Image:** {og_image}")
-
+    lines.extend(_dead_link_section(bookmark))
+    lines.extend(_duplicate_section(bookmark))
+    lines.extend(_fetched_metadata_section(bookmark))
     lines.extend(
         [
             "",
@@ -82,23 +99,14 @@ def _markdown_body(bookmark: Bookmark, related: list[tuple[Bookmark, str]]) -> s
             f"- **Confidence:** {bookmark.confidence_score:.2f}",
         ]
     )
-
     if bookmark.duplicate_group_id:
         lines.append(f"- **Duplicate group:** `{bookmark.duplicate_group_id}`")
-
     lines.extend(["", "## Tags"])
     for tag in bookmark.tags:
         lines.append(f"- #{tag}")
-
-    if related:
-        lines.extend(["", "## Related Bookmarks"])
-        for rel, reason in related:
-            rel_path = "/".join(rel.category_breadcrumbs)
-            lines.append(f"- [{rel.title}]({rel.safe_title}.md) — _{reason}_ — {rel_path}")
-
+    lines.extend(_related_section(bookmark, related))
     if bookmark.icon:
         lines.extend(["", f"![Icon]({bookmark.icon})"])
-
     return "\n".join(lines)
 
 
@@ -111,6 +119,36 @@ def _related_label(bm: Bookmark, other: Bookmark) -> str:
     if bm.add_date_epoch and other.add_date_epoch:
         return "Bookmarked together"
     return "Related"
+
+
+def _build_related(
+    bm: Bookmark,
+    by_category: dict[str, list[Bookmark]],
+    by_domain: dict[str, list[Bookmark]],
+    bookmarks: list[Bookmark],
+    max_related: int,
+) -> list[tuple[Bookmark, str]]:
+    """Assemble related bookmarks for ``bm`` from category/domain/epoch indexes."""
+    related: list[tuple[Bookmark, str]] = []
+    related_ids: set[str] = set()
+    for r in by_category.get(bm.category_path, []):
+        if r.id != bm.id and r.id not in related_ids:
+            related.append((r, "Same category"))
+            related_ids.add(r.id)
+    if bm.domain:
+        for r in by_domain.get(bm.domain, []):
+            if r.id != bm.id and r.id not in related_ids and len(related) < max_related * 2:
+                related.append((r, f"Same domain: {bm.domain}"))
+                related_ids.add(r.id)
+    if bm.add_date_epoch:
+        bm_epoch = int(bm.add_date_epoch) if bm.add_date_epoch else 0
+        for r in bookmarks:
+            if r.id != bm.id and r.id not in related_ids and r.add_date_epoch:
+                diff = abs(int(r.add_date_epoch) - bm_epoch)
+                if diff < 1800 and len(related) < max_related:
+                    related.append((r, "Bookmarked together"))
+                    related_ids.add(r.id)
+    return related[:max_related]
 
 
 def export_obsidian(
@@ -139,26 +177,7 @@ def export_obsidian(
         cat_dir = vault_dir / "/".join(safe_parts) if safe_parts else vault_dir
         ensure_dir(cat_dir)
 
-        related: list[tuple[Bookmark, str]] = []
-        related_ids: set[str] = set()
-        for r in by_category.get(bm.category_path, []):
-            if r.id != bm.id and r.id not in related_ids:
-                related.append((r, "Same category"))
-                related_ids.add(r.id)
-        if bm.domain:
-            for r in by_domain.get(bm.domain, []):
-                if r.id != bm.id and r.id not in related_ids and len(related) < max_related * 2:
-                    related.append((r, f"Same domain: {bm.domain}"))
-                    related_ids.add(r.id)
-        if bm.add_date_epoch:
-            bm_epoch = int(bm.add_date_epoch) if bm.add_date_epoch else 0
-            for r in bookmarks:
-                if r.id != bm.id and r.id not in related_ids and r.add_date_epoch:
-                    diff = abs(int(r.add_date_epoch) - bm_epoch)
-                    if diff < 1800 and len(related) < max_related:
-                        related.append((r, "Bookmarked together"))
-                        related_ids.add(r.id)
-        related = related[:max_related]
+        related = _build_related(bm, by_category, by_domain, bookmarks, max_related)
 
         front = _frontmatter(bm)
         body = _markdown_body(bm, related)

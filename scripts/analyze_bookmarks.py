@@ -84,11 +84,8 @@ class BookmarkParser(HTMLParser):
             self.a_text += data
 
 
-def main():
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    input_path = os.path.join(base_dir, "bookmarks_6_11_26.html")
-    out_json = os.path.join(base_dir, "analysis", "taxonomy_report.json")
-
+def _parse_bookmarks(input_path: str):
+    """Parse the bookmark HTML file and return the bookmark list."""
     if not os.path.isfile(input_path):
         print(f"Error: bookmark file not found at {input_path}", file=sys.stderr)
         sys.exit(1)
@@ -98,39 +95,18 @@ def main():
 
     parser = BookmarkParser()
     parser.feed(html_content)
+    return parser.bookmarks
 
-    bookmarks = parser.bookmarks
-    total_bookmarks = len(bookmarks)
 
-    folder_counts = defaultdict(int)
-    for bm in bookmarks:
-        folder_counts[bm["folder_path"]] += 1
-
-    top_20 = sorted(folder_counts.items(), key=lambda x: (-x[1], x[0]))[:20]
-    top_10_names = [name for name, _ in top_20[:10]]
-
-    sampled = {}
-    for folder in top_10_names:
-        bms = [bm for bm in bookmarks if bm["folder_path"] == folder]
-        bms_sorted = sorted(bms, key=lambda x: (x["title"] or "").lower())
-        sampled[folder] = [
-            {
-                "url": bm["url"],
-                "title": bm["title"],
-                "current_folder": bm["folder_path"],
-            }
-            for bm in bms_sorted[:5]
-        ]
-
-    # Build full taxonomy tree
+def _build_taxonomy(folder_counts):
+    """Build the nested taxonomy tree from leaf-folder counts."""
     all_folders = set(folder_counts.keys())
     for path in list(all_folders):
         if not path:
             continue
         parts = path.split(" / ")
         for i in range(1, len(parts)):
-            parent = " / ".join(parts[:i])
-            all_folders.add(parent)
+            all_folders.add(" / ".join(parts[:i]))
 
     nodes = {}
     for path in all_folders:
@@ -156,14 +132,38 @@ def main():
         if path == root_key:
             continue
         parts = path.split(" / ")
-        parent_path = " / ".join(parts[:-1])
-        parent = nodes.get(parent_path)
+        parent = nodes.get(" / ".join(parts[:-1]))
         if parent is not None:
             parent["children"].append(node)
         else:
             nodes[root_key]["children"].append(node)
 
-    taxonomy = nodes[root_key]
+    return nodes[root_key]
+
+
+def _build_report(bookmarks):
+    """Compute folder counts, top-N sampling, and the taxonomy → report dict."""
+    total_bookmarks = len(bookmarks)
+
+    folder_counts = defaultdict(int)
+    for bm in bookmarks:
+        folder_counts[bm["folder_path"]] += 1
+
+    top_20 = sorted(folder_counts.items(), key=lambda x: (-x[1], x[0]))[:20]
+    top_10_names = [name for name, _ in top_20[:10]]
+
+    sampled = {}
+    for folder in top_10_names:
+        bms = [bm for bm in bookmarks if bm["folder_path"] == folder]
+        bms_sorted = sorted(bms, key=lambda x: (x["title"] or "").lower())
+        sampled[folder] = [
+            {
+                "url": bm["url"],
+                "title": bm["title"],
+                "current_folder": bm["folder_path"],
+            }
+            for bm in bms_sorted[:5]
+        ]
 
     report = {
         "summary": {
@@ -174,19 +174,20 @@ def main():
             ],
         },
         "samples_from_top_10": sampled,
-        "full_taxonomy": taxonomy,
+        "full_taxonomy": _build_taxonomy(folder_counts),
     }
+    return report, folder_counts, top_20, sampled
 
-    os.makedirs(os.path.dirname(out_json), exist_ok=True)
-    with open(out_json, "w", encoding="utf-8") as jf:
-        json.dump(report, jf, indent=2, ensure_ascii=False)
 
-    print(f"Report written to {out_json}\n")
+def _print_report(report, folder_counts, top_20, sampled):
+    """Print the human-readable analysis to stdout."""
+    summary = report["summary"]
+    top_10_names = [name for name, _ in top_20[:10]]
 
     print("=" * 60)
     print("BOOKMARK TAXONOMY ANALYSIS REPORT")
     print("=" * 60)
-    print(f"Total bookmarks parsed: {total_bookmarks}")
+    print(f"Total bookmarks parsed: {summary['total_bookmarks']}")
     print(f"Unique leaf folders: {len(folder_counts)}\n")
 
     print("-" * 60)
@@ -209,6 +210,22 @@ def main():
     print("\n" + "=" * 60)
     print("END OF REPORT")
     print("=" * 60)
+
+
+def main():
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    input_path = os.path.join(base_dir, "bookmarks_6_11_26.html")
+    out_json = os.path.join(base_dir, "analysis", "taxonomy_report.json")
+
+    bookmarks = _parse_bookmarks(input_path)
+    report, folder_counts, top_20, sampled = _build_report(bookmarks)
+
+    os.makedirs(os.path.dirname(out_json), exist_ok=True)
+    with open(out_json, "w", encoding="utf-8") as jf:
+        json.dump(report, jf, indent=2, ensure_ascii=False)
+
+    print(f"Report written to {out_json}\n")
+    _print_report(report, folder_counts, top_20, sampled)
 
 
 if __name__ == "__main__":
